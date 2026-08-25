@@ -1,0 +1,408 @@
+#!/usr/bin/env bash
+# omarchy-x-panel — Opera-GX style always-on X (Twitter) side panel for Omarchy.
+#
+# The panel IS your existing X (Twitter) window — never a second Chromium
+# instance (that would be the "enredo" of two separate logins). If an X window is
+# already open it is reused; otherwise one is launched with your native profile.
+#   * pinned (visible on every workspace) and floating at a configurable position/size
+#   * toggled from the bar icon or SUPER+SHIFT+X: show / hide WITHOUT closing,
+#     so the session and scroll position are preserved.
+#
+# Layout is computed against the SAFE AREA: the monitor minus the Quickshell bar
+# strip (top or bottom), so the panel never covers the bar and respects a gap.
+# Identity is tracked as "address|pid". Preferences live in prefs.json and are
+# applied live via `set-pref <key> <value>`.
+
+set -uo pipefail
+
+X_URL="https://x.com/"
+# Portable: derive the plugin dir from this script's own location (bin/ -> plugin root),
+# so it works after `omarchy plugin add` on any machine, not just this one.
+SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+PLUGIN_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+PROFILE="${CHROMIUM_PROFILE:-$HOME/.config/chromium}"
+PREFS="/run/user/1001/omarchy-x-panel.prefs.json"
+STATE="/run/user/1001/x-panel.state"   # stores "address|pid"
+
+export HYPRLAND_INSTANCE_SIGNATURE="${HYPRLAND_INSTANCE_SIGNATURE:-$(ls -1 /run/user/1001/hypr/ | grep -E '^[0-9a-f]{8}' | head -1)}"
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/1001}"
+export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-1}"
+
+SPECIAL="special:sidepanelX"
+X_CLASS="chrome-x.com__-Default"
+BAR_NS="omarchy-bar"
+GAP=8
+
+# ---- prefs ----------------------------------------------------------------
+default_prefs() { echo '{"side":"right","valign":"top","width":420,"height":900}'; }
+read_prefs() {
+  if [ -s "$PREFS" ]; then jq -c . "$PREFS" 2>/dev/null || default_prefs
+  else default_prefs; fi
+}
+write_prefs() {
+  local cur; cur=$(read_prefs)
+  local tmp; tmp=$(mktemp -p /run/user/1001)
+  if echo "$cur" | jq --arg k "$1" --argjson v "$2" '. + {($k): $v}' > "$tmp" 2>/dev/null; then
+    mv "$tmp" "$PREFS"
+  else
+    rm -f "$tmp"
+  fi
+}
+
+# Atomic state-file write (exclusive temp in same dir, then mv -f) — G12.
+write_state() {
+  local tmp; tmp=$(mktemp -p /run/user/1001)
+  echo "$1" > "$tmp" && mv -f "$tmp" "$STATE"
+}
+pref() { read_prefs | jq -r --arg k "$1" '.[$k]'; }
+
+# ---- hyprland helpers -----------------------------------------------------
+find_x() {
+  timeout 5 hyprctl clients -j 2>/dev/null | head -c 65536 | jq -r --arg c "$X_CLASS" \
+    '.[] | select(.class==$c) | "\(.address)|\(.pid)"' | head -n1 || true
+}
+addr_alive() {
+  local a="$1"; [ -z "$a" ] && return 1
+  # Boolean: the exit code drives `resolve`, so NO `|| true` here (that would
+  # make it always-true and reuse a dead address).
+  timeout 5 hyprctl clients -j 2>/dev/null | head -c 65536 | jq -e --arg a "$a" '.[] | select(.address==$a)' >/dev/null 2>&1
+}
+pid_alive() { local p="$1"; [ -n "$p" ] && kill -0 "$p" 2>/dev/null; }
+resolve() {
+  local saved="$1" a p cur
+  a="${saved%%|*}"; p="${saved##*|}"
+  if addr_alive "$a"; then echo "$a|$p"; return; fi
+  if pid_alive "$p"; then
+    # Chromium shares the browser pid across windows, so the pid lookup MUST
+    # also match the X class — otherwise we adopt a non-X Chromium window.
+    cur=$(timeout 5 hyprctl clients -j 2>/dev/null | head -c 65536 | jq -r --arg p "$p" --arg c "$X_CLASS" '.[] | select(.pid==($p|tonumber) and .class==$c) | "\(.address)|\(.pid)"' | head -n1 || true)
+    [ -n "$cur" ] && { echo "$cur"; return; }
+  fi
+  cur=$(find_x); [ -n "$cur" ] && { echo "$cur"; return; }
+  echo ""
+}
+is_pinned() {
+  local a="$1"; timeout 5 hyprctl clients -j 2>/dev/null | head -c 65536 | jq -r --arg a "$a" '.[] | select(.address==$a) | .pinned' | head -n1 || true
+}
+state_of() {
+  local ap="$1" a="${1%%|*}"
+  addr_alive "$a" || { echo "gone"; return; }
+  local ws
+  ws=$(timeout 5 hyprctl clients -j 2>/dev/null | head -c 65536 | jq -r --arg a "$a" '.[] | select(.address==$a) | .workspace.name' || true)
+  case "$ws" in
+    "$SPECIAL") echo "hidden" ;;
+    *) echo "visible" ;;
+  esac
+}
+
+hl_move()   { hyprctl dispatch "hl.dsp.window.move({ window = \"address:$1\", workspace = \"$2\", follow = $3 })" >/dev/null 2>&1; }
+hl_float()  { hyprctl dispatch "hl.dsp.window.float({ window = \"address:$1\" })" >/dev/null 2>&1; }   # toggles pin
+hl_pin()    { hyprctl dispatch "hl.dsp.window.pin({ window = \"address:$1\" })" >/dev/null 2>&1; }   # toggles pin
+hl_resize() { hyprctl dispatch "hl.dsp.window.resize({ window = \"address:$1\", x = $2, y = $3 })" >/dev/null 2>&1; }
+hl_movepos(){ hyprctl dispatch "hl.dsp.window.move({ window = \"address:$1\", x = $2, y = $3 })" >/dev/null 2>&1; }
+hl_focus()  { hyprctl dispatch "hl.dsp.focus({ window = \"address:$1\" })" >/dev/null 2>&1; }
+
+ensure_pin() {
+  local a="$1" want="$2" cur
+  cur=$(is_pinned "$a")
+  if [ "$cur" != "$want" ]; then hl_pin "$a"; fi
+}
+
+is_floating() {
+  local a="$1"; timeout 5 hyprctl clients -j 2>/dev/null | head -c 65536 | jq -r --arg a "$a" '.[] | select(.address==$a) | .floating' | head -n1 || true
+}
+ensure_float() {
+  local a="$1" cur
+  cur=$(is_floating "$a")
+  if [ "$cur" != "true" ]; then hl_float "$a"; fi
+}
+
+monitor_size() {
+  timeout 5 hyprctl monitors -j 2>/dev/null | head -c 65536 | jq -r 'if type=="array" then .[0] else . end | "\(.width / (.scale // 1) | floor) \(.height / (.scale // 1) | floor)"' 2>/dev/null || true
+}
+
+# Quickshell bar strip geometry: "barY barH" in logical px (or "0 0" if not found).
+# Detected from the layer named omarchy-bar. Works whether the bar is on the
+# top or the bottom edge.
+bar_geom() {
+  local line by bh
+  line=$(timeout 5 hyprctl layers 2>/dev/null | head -c 65536 | grep -E "namespace: $BAR_NS" | head -n1 || true)
+  if [ -z "$line" ]; then echo "0 0"; return; fi
+  # line looks like: Layer <addr>: xywh: X Y W H, a: A, namespace: omarchy-bar, pid: N
+  by=$(echo "$line" | sed -E 's/.*xywh: [0-9]+ ([0-9]+) [0-9]+ ([0-9]+).*/\1/')
+  bh=$(echo "$line" | sed -E 's/.*xywh: [0-9]+ [0-9]+ [0-9]+ ([0-9]+).*/\1/')
+  [ -z "$by" ] && by=0
+  [ -z "$bh" ] && bh=0
+  echo "$by $bh"
+}
+
+# Safe area (logical px) = monitor minus the bar strip, with a gap.
+# Echoes "sy sh" (start-y, height of the usable area).
+safe_area() {
+  local mw="$1" mh="$2" by="$3" bh="$4" sy sh
+  if [ "$bh" -le 0 ]; then echo "0 $mh"; return; fi
+  if [ "$by" -lt $(( mh / 2 )) ]; then
+    # bar at top: usable area starts below the bar
+    sy=$(( by + bh + GAP ))
+    sh=$(( mh - sy ))
+  else
+    # bar at bottom: usable area ends above the bar
+    sy=$GAP
+    sh=$(( by - GAP ))
+  fi
+  [ "$sh" -lt 40 ] && sh=40
+  echo "$sy $sh"
+}
+
+px_value() {
+  local raw="$1" dim="$2" ref="$3"
+  if [[ "$raw" == *% ]]; then
+    echo "$(( ref * ${raw%\%} / 100 ))"
+  else
+    echo "$raw"
+  fi
+}
+
+# Compute x|y in logical px. $5 = safe-area start-y, $6 = safe-area height, $7 = height.
+compute_xy() {
+  local side="$1" valign="$2" mw="$3" w="$4" sy="$5" sh="$6" h="$7" x y
+  case "$side" in
+    left)   x=20 ;;
+    center) x=$(( (mw - w) / 2 )) ;;
+    right)  x=$(( mw - w - 20 )) ;;
+    *)      x=$(( mw - w - 20 )) ;;
+  esac
+  case "$valign" in
+    top)    y=$sy ;;
+    bottom) y=$(( sy + sh - h )) ;;
+    center) y=$(( sy + (sh - h) / 2 )) ;;
+    *)      y=$sy ;;
+  esac
+  echo "$x|$y"
+}
+
+apply_layout() {
+  local ap="$1" a="${1%%|*}" side valign w h ms mw mh bg by bh sa sy sh xy x y yoff="${2:-0}"
+  side=$(pref side); valign=$(pref valign)
+  ms=$(monitor_size); mw="${ms%% *}"; mh="${ms##* }"
+  bg=$(bar_geom); by="${bg%% *}"; bh="${bg##* }"
+  sa=$(safe_area "$mw" "$mh" "$by" "$bh"); sy="${sa%% *}"; sh="${sa##* }"
+  w=$(px_value "$(pref width)" w "$mw")
+  h=$(px_value "$(pref height)" h "$sh")
+  # recompute y with real h
+  case "$valign" in
+    top)    y=$sy ;;
+    bottom) y=$(( sy + sh - h )) ;;
+    center) y=$(( sy + (sh - h) / 2 )) ;;
+    *)      y=$sy ;;
+  esac
+  case "$side" in
+    left)   x=20 ;;
+    center) x=$(( (mw - w) / 2 )) ;;
+    right)  x=$(( mw - w - 20 )) ;;
+    *)      x=$(( mw - w - 20 )) ;;
+  esac
+  y=$(( y + yoff ))
+  [ "$y" -lt 0 ] && y=0
+  hl_resize "$a" "$w" "$h"; hl_movepos "$a" "$x" "$y"
+}
+
+launch_or_reuse() {
+  local ap; ap=$(find_x)
+  if [ -z "$ap" ]; then
+    # Launch EXACTLY like the Omarchy launcher (SUPER+SPACE -> Apps -> X): run the
+    # .desktop file via uwsm-app. Never wrap omarchy-launch-webapp in another
+    # `setsid uwsm-app --` — the double wrap eats the --app arg and opens a plain
+    # empty browser window instead of the webapp.
+    if [ -f "$HOME/.local/share/applications/X.desktop" ] || [ -f /usr/share/applications/X.desktop ]; then
+      ( uwsm-app -- X.desktop >/dev/null 2>&1 & )
+    else
+      ( omarchy-launch-webapp "$X_URL" >/dev/null 2>&1 & )
+    fi
+    for _ in $(seq 1 40); do
+      sleep 0.3; ap=$(find_x); [ -n "$ap" ] && break
+    done
+  fi
+  if [ -z "$ap" ]; then echo "failed to launch X window" >&2; rm -f "$STATE"; exit 1; fi
+  write_state "$ap"
+  apply_layout "$ap"
+  ensure_float "${ap%%|*}"
+  ensure_pin "${ap%%|*}" true
+}
+
+show_window() {
+  local ap="$1" a="${1%%|*}"
+  hl_move "$a" "+0" true
+  ensure_float "$a"
+  ensure_pin "$a" true
+  apply_layout "$ap"
+  hl_focus "$a"
+}
+# Reveal without stealing focus — used while the preferences panel is open so it
+# keeps focus and stays up while you preview changes.
+reveal_window() {
+  local ap="$1" a="${1%%|*}"
+  hl_move "$a" "+0" true
+  ensure_float "$a"
+  ensure_pin "$a" true
+}
+hide_window() {
+  local ap="$1" a="${1%%|*}"
+  ensure_pin "$a" false
+  hl_move "$a" "$SPECIAL" false
+}
+
+# ---- keybind self-install ---------------------------------------------------
+# Omarchy has no plugin-keybind registration, so we install one ourselves the
+# same way the control-panel does: a generated Lua file required LAST from
+# hyprland.lua (wins load order over the default SUPER+SHIFT+X webapp bind).
+# Idempotent; hyprctl reload only happens when something actually changed.
+# Opt-out is persistent: if ~/.config/hypr/x-panel-bindings.disabled exists,
+# install-bind is a no-op (so the Service never re-adds a bind the user removed).
+# G12: every write is mktemp+mv in the same dir, every read is timeout+capped.
+BIND_DIR="$HOME/.config/hypr"
+BIND_LUA="$BIND_DIR/x-panel-bindings.lua"
+BIND_MARK="$BIND_DIR/x-panel-bindings.disabled"
+BIND_MAIN="$BIND_DIR/hyprland.lua"
+
+ensure_keybind() {
+  [ -f "$BIND_MARK" ] && return 0   # user opted out from the prefs panel
+  [ -d "$BIND_DIR" ] || return 0
+  local changed=0
+  local tmp; tmp=$(mktemp -p "$BIND_DIR") || return 0
+  cat > "$tmp" <<EOF
+-- Auto-generated by omarchy-x-panel. Binds SUPER+SHIFT+X to the persistent
+-- panel toggle (replaces the default X webapp bind, which relaunches a fresh
+-- window each time). Remove it from the X Panel preferences, or delete this
+-- file and the require("x-panel-bindings") line in hyprland.lua.
+hl.unbind("SUPER + SHIFT + X")
+o.bind("SUPER + SHIFT + X", "X Panel", "$PLUGIN_DIR/bin/omarchy-x-panel toggle")
+EOF
+  if cmp -s "$tmp" "$BIND_LUA" 2>/dev/null; then rm -f "$tmp"; else mv -f "$tmp" "$BIND_LUA"; changed=1; fi
+  if [ -f "$BIND_MAIN" ]; then
+    local cur; cur=$(timeout 5 head -c 65536 "$BIND_MAIN" 2>/dev/null || true)
+    if ! printf '%s' "$cur" | grep -qs 'require("x-panel-bindings")'; then
+      local tmp2; tmp2=$(mktemp -p "$BIND_DIR") || return 0
+      { printf '%s\n' "$cur"; printf '\nrequire("x-panel-bindings")\n'; } > "$tmp2" \
+        && mv -f "$tmp2" "$BIND_MAIN" && changed=1
+    fi
+  fi
+  # NO hyprctl reload here: Hyprland auto-watches hyprland.lua and reloads on
+  # write. An explicit reload would race that auto-reload (transient error).
+  return 0
+}
+
+remove_keybind() {
+  # ORDER MATTERS: Hyprland auto-reloads hyprland.lua on write AND watches
+  # required modules. If we deleted the lua first, the auto-reload would
+  # evaluate hyprland.lua while it still requires the (now missing) module:
+  # "module 'x-panel-bindings' not found". So drop the require FIRST, then the
+  # file.
+  if [ -f "$BIND_MAIN" ]; then
+    local cur; cur=$(timeout 5 head -c 65536 "$BIND_MAIN" 2>/dev/null || true)
+    if printf '%s' "$cur" | grep -qs 'require("x-panel-bindings")'; then
+      local tmp; tmp=$(mktemp -p "$BIND_DIR") || return 0
+      printf '%s\n' "$cur" | grep -v 'require("x-panel-bindings")' > "$tmp" \
+        && mv -f "$tmp" "$BIND_MAIN"
+    fi
+  fi
+  rm -f "$BIND_LUA"
+  # persistent opt-out marker (atomic) so a re-enabled Service never re-adds it
+  local mtmp; mtmp=$(mktemp -p "$BIND_DIR") && mv -f "$mtmp" "$BIND_MARK"
+  # No hyprctl reload: Hyprland auto-reloads hyprland.lua on write.
+}
+
+bind_status() {
+  [ -f "$BIND_LUA" ] && echo "enabled" || echo "disabled"
+}
+
+bind_toggle() {
+  if [ -f "$BIND_LUA" ]; then
+    remove_keybind
+  else
+    rm -f "$BIND_MARK"
+    ensure_keybind   # reloads once, only if something changed
+  fi
+}
+
+main() {
+  local saved ap st
+  saved=$(cat "$STATE" 2>/dev/null | tr -d '[:space:]')
+  ap=$(resolve "$saved")
+  if [ -z "$ap" ]; then rm -f "$STATE"; launch_or_reuse; return; fi
+  write_state "$ap"
+  st=$(state_of "$ap")
+  case "$st" in
+    gone)   launch_or_reuse ;;
+    hidden) show_window "$ap" ;;
+    visible) hide_window "$ap" ;;
+  esac
+}
+
+case "${1:-toggle}" in
+  install-bind) ensure_keybind ;;
+  uninstall-bind) remove_keybind ;;
+  bind-toggle) bind_toggle ;;
+  bind-status) bind_status ;;
+  toggle) main ;;
+  show)
+    saved=$(cat "$STATE" 2>/dev/null | tr -d '[:space:]'); ap=$(resolve "$saved")
+    if [ -z "$ap" ]; then launch_or_reuse; else write_state "$ap"; show_window "$ap"; fi
+    ;;
+  hide)
+    saved=$(cat "$STATE" 2>/dev/null | tr -d '[:space:]'); ap=$(resolve "$saved")
+    [ -n "$ap" ] && hide_window "$ap"
+    ;;
+  is-visible)
+    saved=$(cat "$STATE" 2>/dev/null | tr -d '[:space:]'); ap=$(resolve "$saved")
+    [ -n "$ap" ] && [ "$(state_of "$ap")" = "visible" ] && exit 0 || exit 1
+    ;;
+  close)
+    saved=$(cat "$STATE" 2>/dev/null | tr -d '[:space:]'); ap=$(resolve "$saved")
+    if [ -n "$ap" ]; then a="${ap%%|*}"; hyprctl dispatch "hl.dsp.window.close({ window = \"address:$a\" })" >/dev/null 2>&1; fi
+    rm -f "$STATE"
+    ;;
+  set-pref)
+    key="$2"; val="$3"
+    if [ -z "$key" ] || [ -z "$val" ]; then echo "usage: set-pref <key> <json-value>" >&2; exit 1; fi
+    write_prefs "$key" "$val"
+    saved=$(cat "$STATE" 2>/dev/null | tr -d '[:space:]'); ap=$(resolve "$saved")
+    if [ -z "$ap" ]; then
+      launch_or_reuse   # window was closed: launch and show it
+    else
+      write_state "$ap"
+      if [ "$(state_of "$ap")" = "gone" ]; then
+        launch_or_reuse
+      else
+        # Always make the window visible so the user can preview the change,
+        # but do NOT steal focus (so the preferences panel stays open). The
+        # panel is layer-shell (always on top), so the X window simply sits
+        # BEHIND it in its chosen position — no offset needed.
+        if [ "$(state_of "$ap")" != "visible" ]; then reveal_window "$ap"; fi
+        apply_layout "$ap"
+      fi
+    fi
+    ;;
+  prefs-open)
+    # Make the X window visible (behind the always-on-top prefs panel) so the
+    # user can preview changes without the panel stealing focus.
+    saved=$(cat "$STATE" 2>/dev/null | tr -d '[:space:]'); ap=$(resolve "$saved")
+    if [ -n "$ap" ]; then
+      write_state "$ap"
+      if [ "$(state_of "$ap")" = "gone" ]; then launch_or_reuse
+      else
+        if [ "$(state_of "$ap")" != "visible" ]; then reveal_window "$ap"; fi
+        apply_layout "$ap"
+      fi
+    fi
+    ;;
+  prefs-close)
+    # Restore the X window to its normal position.
+    saved=$(cat "$STATE" 2>/dev/null | tr -d '[:space:]'); ap=$(resolve "$saved")
+    if [ -n "$ap" ]; then
+      write_state "$ap"
+      [ "$(state_of "$ap")" = "gone" ] && launch_or_reuse || apply_layout "$ap"
+    fi
+    ;;
+  *) main ;;
+esac
