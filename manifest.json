@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.avillagran.omarchy-x-panel",
+  "name": "X Panel",
+  "version": "1.0.0",
+  "author": "Andrés Villagrán <andres@villagranquiroz.cl>",
+  "license": "MIT",
+  "description": "Opera-GX style persistent X (Twitter) side panel: one always-on, pinned, floating window toggled from the bar or SUPER+SHIFT+X. Hiding keeps the session alive.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "X Panel",
+    "description": "Toggle the always-on X side panel.",
+    "category": "Social",
+    "defaultSection": "right"
+  }
+}
