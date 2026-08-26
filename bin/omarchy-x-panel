@@ -21,12 +21,36 @@ X_URL="https://x.com/"
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 PLUGIN_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 PROFILE="${CHROMIUM_PROFILE:-$HOME/.config/chromium}"
-PREFS="/run/user/1001/omarchy-x-panel.prefs.json"
-STATE="/run/user/1001/x-panel.state"   # stores "address|pid"
+RUNDIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+PREFS="$RUNDIR/omarchy-x-panel.prefs.json"
+STATE="$RUNDIR/x-panel.state"   # stores "address|pid"
 
-export HYPRLAND_INSTANCE_SIGNATURE="${HYPRLAND_INSTANCE_SIGNATURE:-$(ls -1 /run/user/1001/hypr/ | grep -E '^[0-9a-f]{8}' | head -1)}"
-export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/1001}"
+export HYPRLAND_INSTANCE_SIGNATURE="${HYPRLAND_INSTANCE_SIGNATURE:-$(ls -1 "$RUNDIR"/hypr/ 2>/dev/null | grep -E '^[0-9a-f]{8}' | head -1)}"
+export XDG_RUNTIME_DIR="$RUNDIR"
 export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-1}"
+
+# ---- safe reads (G12 hardened) ---------------------------------------------
+# Every external read goes through one of these helpers. They refuse symlinks
+# to special files / FIFOs, cap size at 256 KiB, and enforce a deadline. A
+# return of "" means "unreadable / unsafe / too large" — never a hang or an
+# unbounded slurp of another user's runtime namespace.
+MAX_READ=262144
+read_file_safe() {                 # read a real file (state, prefs, hyprland.lua)
+  local f="$1"
+  [ -e "$f" ] || { printf ''; return 1; }
+  [ -f "$f" ] && [ ! -L "$f" ] || { printf ''; return 1; }
+  local sz; sz=$(wc -c < "$f" 2>/dev/null || echo 0)
+  case "$sz" in (*[!0-9]*) sz=0 ;; esac
+  [ "$sz" -le "$MAX_READ" ] || { printf ''; return 1; }
+  timeout 5 head -c "$MAX_READ" "$f" 2>/dev/null || true
+}
+hypr_json() {                      # run a hyprctl -j query, read it safely
+  local tmp; tmp=$(mktemp -p "$RUNDIR") || { printf ''; return 1; }
+  if timeout 5 "$@" > "$tmp" 2>/dev/null; then
+    read_file_safe "$tmp"
+  fi
+  rm -f "$tmp"
+}
 
 SPECIAL="special:sidepanelX"
 X_CLASS="chrome-x.com__-Default"
@@ -41,7 +65,7 @@ read_prefs() {
 }
 write_prefs() {
   local cur; cur=$(read_prefs)
-  local tmp; tmp=$(mktemp -p /run/user/1001)
+  local tmp; tmp=$(mktemp -p "$RUNDIR")
   if echo "$cur" | jq --arg k "$1" --argjson v "$2" '. + {($k): $v}' > "$tmp" 2>/dev/null; then
     mv "$tmp" "$PREFS"
   else
@@ -51,21 +75,21 @@ write_prefs() {
 
 # Atomic state-file write (exclusive temp in same dir, then mv -f) — G12.
 write_state() {
-  local tmp; tmp=$(mktemp -p /run/user/1001)
+  local tmp; tmp=$(mktemp -p "$RUNDIR")
   echo "$1" > "$tmp" && mv -f "$tmp" "$STATE"
 }
 pref() { read_prefs | jq -r --arg k "$1" '.[$k]'; }
 
 # ---- hyprland helpers -----------------------------------------------------
 find_x() {
-  timeout 5 hyprctl clients -j 2>/dev/null | head -c 65536 | jq -r --arg c "$X_CLASS" \
+  hypr_json hyprctl clients -j 2>/dev/null | jq -r --arg c "$X_CLASS" \
     '.[] | select(.class==$c) | "\(.address)|\(.pid)"' | head -n1 || true
 }
 addr_alive() {
   local a="$1"; [ -z "$a" ] && return 1
   # Boolean: the exit code drives `resolve`, so NO `|| true` here (that would
   # make it always-true and reuse a dead address).
-  timeout 5 hyprctl clients -j 2>/dev/null | head -c 65536 | jq -e --arg a "$a" '.[] | select(.address==$a)' >/dev/null 2>&1
+  hypr_json hyprctl clients -j 2>/dev/null | jq -e --arg a "$a" '.[] | select(.address==$a)' >/dev/null 2>&1
 }
 pid_alive() { local p="$1"; [ -n "$p" ] && kill -0 "$p" 2>/dev/null; }
 resolve() {
@@ -75,20 +99,20 @@ resolve() {
   if pid_alive "$p"; then
     # Chromium shares the browser pid across windows, so the pid lookup MUST
     # also match the X class — otherwise we adopt a non-X Chromium window.
-    cur=$(timeout 5 hyprctl clients -j 2>/dev/null | head -c 65536 | jq -r --arg p "$p" --arg c "$X_CLASS" '.[] | select(.pid==($p|tonumber) and .class==$c) | "\(.address)|\(.pid)"' | head -n1 || true)
+    cur=$(hypr_json hyprctl clients -j 2>/dev/null | jq -r --arg p "$p" --arg c "$X_CLASS" '.[] | select(.pid==($p|tonumber) and .class==$c) | "\(.address)|\(.pid)"' | head -n1 || true)
     [ -n "$cur" ] && { echo "$cur"; return; }
   fi
   cur=$(find_x); [ -n "$cur" ] && { echo "$cur"; return; }
   echo ""
 }
 is_pinned() {
-  local a="$1"; timeout 5 hyprctl clients -j 2>/dev/null | head -c 65536 | jq -r --arg a "$a" '.[] | select(.address==$a) | .pinned' | head -n1 || true
+  local a="$1"; hypr_json hyprctl clients -j 2>/dev/null | jq -r --arg a "$a" '.[] | select(.address==$a) | .pinned' | head -n1 || true
 }
 state_of() {
   local ap="$1" a="${1%%|*}"
   addr_alive "$a" || { echo "gone"; return; }
   local ws
-  ws=$(timeout 5 hyprctl clients -j 2>/dev/null | head -c 65536 | jq -r --arg a "$a" '.[] | select(.address==$a) | .workspace.name' || true)
+  ws=$(hypr_json hyprctl clients -j 2>/dev/null | jq -r --arg a "$a" '.[] | select(.address==$a) | .workspace.name' || true)
   case "$ws" in
     "$SPECIAL") echo "hidden" ;;
     *) echo "visible" ;;
@@ -109,7 +133,7 @@ ensure_pin() {
 }
 
 is_floating() {
-  local a="$1"; timeout 5 hyprctl clients -j 2>/dev/null | head -c 65536 | jq -r --arg a "$a" '.[] | select(.address==$a) | .floating' | head -n1 || true
+  local a="$1"; hypr_json hyprctl clients -j 2>/dev/null | jq -r --arg a "$a" '.[] | select(.address==$a) | .floating' | head -n1 || true
 }
 ensure_float() {
   local a="$1" cur
@@ -118,7 +142,7 @@ ensure_float() {
 }
 
 monitor_size() {
-  timeout 5 hyprctl monitors -j 2>/dev/null | head -c 65536 | jq -r 'if type=="array" then .[0] else . end | "\(.width / (.scale // 1) | floor) \(.height / (.scale // 1) | floor)"' 2>/dev/null || true
+  hypr_json hyprctl monitors -j 2>/dev/null | jq -r 'if type=="array" then .[0] else . end | "\(.width / (.scale // 1) | floor) \(.height / (.scale // 1) | floor)"' 2>/dev/null || true
 }
 
 # Quickshell bar strip geometry: "barY barH" in logical px (or "0 0" if not found).
@@ -126,7 +150,7 @@ monitor_size() {
 # top or the bottom edge.
 bar_geom() {
   local line by bh
-  line=$(timeout 5 hyprctl layers 2>/dev/null | head -c 65536 | grep -E "namespace: $BAR_NS" | head -n1 || true)
+  line=$(hypr_json hyprctl layers 2>/dev/null | grep -E "namespace: $BAR_NS" | head -n1 || true)
   if [ -z "$line" ]; then echo "0 0"; return; fi
   # line looks like: Layer <addr>: xywh: X Y W H, a: A, namespace: omarchy-bar, pid: N
   by=$(echo "$line" | sed -E 's/.*xywh: [0-9]+ ([0-9]+) [0-9]+ ([0-9]+).*/\1/')
@@ -215,9 +239,9 @@ launch_or_reuse() {
     # `setsid uwsm-app --` — the double wrap eats the --app arg and opens a plain
     # empty browser window instead of the webapp.
     if [ -f "$HOME/.local/share/applications/X.desktop" ] || [ -f /usr/share/applications/X.desktop ]; then
-      ( uwsm-app -- X.desktop >/dev/null 2>&1 & )
+      ( uwsm-app -- X.desktop >/tmp/x-panel.log 2>&1 & )
     else
-      ( omarchy-launch-webapp "$X_URL" >/dev/null 2>&1 & )
+      ( omarchy-launch-webapp "$X_URL" >/tmp/x-panel.log 2>&1 & )
     fi
     for _ in $(seq 1 40); do
       sleep 0.3; ap=$(find_x); [ -n "$ap" ] && break
@@ -256,72 +280,60 @@ hide_window() {
 # Omarchy has no plugin-keybind registration, so we install one ourselves the
 # same way the control-panel does: a generated Lua file required LAST from
 # hyprland.lua (wins load order over the default SUPER+SHIFT+X webapp bind).
-# Idempotent; hyprctl reload only happens when something actually changed.
-# Opt-out is persistent: if ~/.config/hypr/x-panel-bindings.disabled exists,
-# install-bind is a no-op (so the Service never re-adds a bind the user removed).
-# G12: every write is mktemp+mv in the same dir, every read is timeout+capped.
-BIND_DIR="$HOME/.config/hypr"
-BIND_LUA="$BIND_DIR/x-panel-bindings.lua"
-BIND_MARK="$BIND_DIR/x-panel-bindings.disabled"
-BIND_MAIN="$BIND_DIR/hyprland.lua"
-
+# Idempotent; hyprctl reload only happens on first install. G12: every write is
+# mktemp+mv in the same dir, every read is timeout+capped.
 ensure_keybind() {
-  [ -f "$BIND_MARK" ] && return 0   # user opted out from the prefs panel
-  [ -d "$BIND_DIR" ] || return 0
-  local changed=0
-  local tmp; tmp=$(mktemp -p "$BIND_DIR") || return 0
+  local hypr_dir="$HOME/.config/hypr"
+  local lua="$hypr_dir/x-panel-bindings.lua"
+  local main="$hypr_dir/hyprland.lua"
+  [ -d "$hypr_dir" ] || return 0
+  local tmp; tmp=$(mktemp -p "$hypr_dir") || return 0
   cat > "$tmp" <<EOF
 -- Auto-generated by omarchy-x-panel. Binds SUPER+SHIFT+X to the persistent
 -- panel toggle (replaces the default X webapp bind, which relaunches a fresh
--- window each time). Remove it from the X Panel preferences, or delete this
--- file and the require("x-panel-bindings") line in hyprland.lua.
+-- window each time). Delete this file and remove require("x-panel-bindings")
+-- from hyprland.lua to restore the default.
 hl.unbind("SUPER + SHIFT + X")
 o.bind("SUPER + SHIFT + X", "X Panel", "$PLUGIN_DIR/bin/omarchy-x-panel toggle")
 EOF
-  if cmp -s "$tmp" "$BIND_LUA" 2>/dev/null; then rm -f "$tmp"; else mv -f "$tmp" "$BIND_LUA"; changed=1; fi
-  if [ -f "$BIND_MAIN" ]; then
-    local cur; cur=$(timeout 5 head -c 65536 "$BIND_MAIN" 2>/dev/null || true)
-    if ! printf '%s' "$cur" | grep -qs 'require("x-panel-bindings")'; then
-      local tmp2; tmp2=$(mktemp -p "$BIND_DIR") || return 0
-      { printf '%s\n' "$cur"; printf '\nrequire("x-panel-bindings")\n'; } > "$tmp2" \
-        && mv -f "$tmp2" "$BIND_MAIN" && changed=1
-    fi
-  fi
-  # NO hyprctl reload here: Hyprland auto-watches hyprland.lua and reloads on
-  # write. An explicit reload would race that auto-reload (transient error).
-  return 0
-}
-
-remove_keybind() {
-  # ORDER MATTERS: Hyprland auto-reloads hyprland.lua on write AND watches
-  # required modules. If we deleted the lua first, the auto-reload would
-  # evaluate hyprland.lua while it still requires the (now missing) module:
-  # "module 'x-panel-bindings' not found". So drop the require FIRST, then the
-  # file.
-  if [ -f "$BIND_MAIN" ]; then
-    local cur; cur=$(timeout 5 head -c 65536 "$BIND_MAIN" 2>/dev/null || true)
-    if printf '%s' "$cur" | grep -qs 'require("x-panel-bindings")'; then
-      local tmp; tmp=$(mktemp -p "$BIND_DIR") || return 0
-      printf '%s\n' "$cur" | grep -v 'require("x-panel-bindings")' > "$tmp" \
-        && mv -f "$tmp" "$BIND_MAIN"
-    fi
-  fi
-  rm -f "$BIND_LUA"
-  # persistent opt-out marker (atomic) so a re-enabled Service never re-adds it
-  local mtmp; mtmp=$(mktemp -p "$BIND_DIR") && mv -f "$mtmp" "$BIND_MARK"
+  if cmp -s "$tmp" "$lua" 2>/dev/null; then rm -f "$tmp"; else mv -f "$tmp" "$lua"; fi
+  [ -f "$main" ] || return 0
+  # Safe, complete read (rejects symlinks/special files and >256 KiB configs).
+  local cur; cur=$(read_file_safe "$main")
+  [ -n "$cur" ] || return 0
+  printf '%s' "$cur" | grep -qs 'require("x-panel-bindings")' && return 0
+  # Append ONE line, preserving the ENTIRE original file (no truncation).
+  local tmp2; tmp2=$(mktemp -p "$hypr_dir") || return 0
+  { printf '%s\n' "$cur"; printf '\nrequire("x-panel-bindings")\n'; } > "$tmp2" \
+    && mv -f "$tmp2" "$main"
   # No hyprctl reload: Hyprland auto-reloads hyprland.lua on write.
 }
 
-bind_status() {
-  [ -f "$BIND_LUA" ] && echo "enabled" || echo "disabled"
+remove_keybind() {
+  local hypr_dir="$HOME/.config/hypr"
+  local lua="$hypr_dir/x-panel-bindings.lua"
+  local main="$hypr_dir/hyprland.lua"
+  # ORDER MATTERS: drop the require FIRST, then the file, so the auto-reload
+  # never evaluates hyprland.lua while it still requires a missing module.
+  if [ -f "$main" ]; then
+    local cur; cur=$(read_file_safe "$main")
+    if [ -n "$cur" ] && printf '%s' "$cur" | grep -qs 'require("x-panel-bindings")'; then
+      local tmp; tmp=$(mktemp -p "$hypr_dir") || return 0
+      # Remove exactly the generated line, preserving everything else.
+      printf '%s\n' "$cur" | grep -v 'require("x-panel-bindings")' > "$tmp" \
+        && mv -f "$tmp" "$main"
+    fi
+  fi
+  rm -f "$lua"
 }
 
+bind_status() { [ -f "$HOME/.config/hypr/x-panel-bindings.lua" ] && echo enabled || echo disabled; }
+
 bind_toggle() {
-  if [ -f "$BIND_LUA" ]; then
+  if [ -f "$HOME/.config/hypr/x-panel-bindings.lua" ]; then
     remove_keybind
   else
-    rm -f "$BIND_MARK"
-    ensure_keybind   # reloads once, only if something changed
+    ensure_keybind
   fi
 }
 
