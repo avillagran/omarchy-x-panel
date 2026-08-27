@@ -15,7 +15,7 @@
   "barWidget": {
     "displayName": "X Panel",
     "description": "Toggle the always-on X side panel.",
-    "category": "Social",
+    "category": "Widgets",
     "defaultSection": "right"
   }
 }
