@@ -373,6 +373,7 @@ case "${1:-toggle}" in
   uninstall-bind) remove_keybind ;;
   bind-toggle) bind_toggle ;;
   bind-status) bind_status ;;
+  get-prefs) read_prefs ;;
   toggle) main ;;
   show)
     saved=$(read_file_safe "$STATE" | tr -d '[:space:]'); ap=$(resolve "$saved")
