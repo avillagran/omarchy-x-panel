@@ -91,10 +91,12 @@ BarWidget {
   }
 
   // --- loaders (Process + StdioCollector, mirroring Omarchy Control Panel) --
+  // Prefs go through the helper's get-prefs, which reads via the single-open
+  // O_NOFOLLOW+fstat-capped reader — never an unbounded cat into QML.
   Process {
     id: prefsLoader
     running: false
-    command: ["bash", "-lc", "cat \"${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/omarchy-x-panel.prefs.json\""]
+    command: [root.binPath, "get-prefs"]
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: root.applyPrefs(text)
@@ -103,7 +105,7 @@ BarWidget {
   Process {
     id: i18nLoader
     running: false
-    command: ["bash", "-lc", "cat '" + Qt.resolvedUrl("i18n.json").toString().replace("file://", "") + "'"]
+    command: ["bash", "-lc", "head -c 262144 '" + Qt.resolvedUrl("i18n.json").toString().replace("file://", "") + "'"]
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: root.loadI18n(text)
