@@ -68,7 +68,6 @@ hypr_json() {                      # run a hyprctl -j query, read it safely
   rm -f "$tmp"
 }
 
-LOG="$RUNDIR/x-panel.log"
 SPECIAL="special:sidepanelX"
 X_CLASS="chrome-x.com__-Default"
 BAR_NS="omarchy-bar"
@@ -257,9 +256,9 @@ launch_or_reuse() {
     # `setsid uwsm-app --` — the double wrap eats the --app arg and opens a plain
     # empty browser window instead of the webapp.
     if [ -f "$HOME/.local/share/applications/X.desktop" ] || [ -f /usr/share/applications/X.desktop ]; then
-      ( uwsm-app -- X.desktop >"$LOG" 2>&1 & )
+      ( uwsm-app -- X.desktop >/dev/null 2>&1 & )
     else
-      ( omarchy-launch-webapp "$X_URL" >"$LOG" 2>&1 & )
+      ( omarchy-launch-webapp "$X_URL" >/dev/null 2>&1 & )
     fi
     for _ in $(seq 1 40); do
       sleep 0.3; ap=$(find_x); [ -n "$ap" ] && break
