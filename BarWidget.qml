@@ -94,7 +94,7 @@ BarWidget {
   Process {
     id: prefsLoader
     running: false
-    command: ["bash", "-lc", "cat '/run/user/1001/omarchy-x-panel.prefs.json'"]
+    command: ["bash", "-lc", "cat \"${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/omarchy-x-panel.prefs.json\""]
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: root.applyPrefs(text)

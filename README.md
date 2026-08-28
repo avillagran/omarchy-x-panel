@@ -52,9 +52,9 @@ removes both and restores Omarchy's default bind.
 
 ## How it works
 
-- Identity is tracked as `address|pid` in `/run/user/1001/x-panel.state`.
+- Identity is tracked as `address|pid` in `$XDG_RUNTIME_DIR/x-panel.state`.
 - Layout is computed against the **safe area** (the monitor minus the Quickshell bar strip), so the panel never covers the bar.
-- Preferences are persisted at `/run/user/1001/omarchy-x-panel.prefs.json` (outside the plugin directory, so writing them never triggers a plugin reload) and applied live via the bundled helper script. All state writes use exclusive `mktemp` + atomic `mv`, and every external read is bounded (`timeout 5 head -c`).
+- Preferences are persisted at `$XDG_RUNTIME_DIR/omarchy-x-panel.prefs.json` (outside the plugin directory, so writing them never triggers a plugin reload) and applied live via the bundled helper script. All state writes use exclusive `mktemp` + atomic `mv`, and every external read is opened once with `O_NOFOLLOW | O_NONBLOCK`, verified via `fstat`, and capped at 256 KiB.
 - Launching uses the same `.desktop` entry as `SUPER+SPACE` → Apps → X (`uwsm-app -- X.desktop`), so a cold start opens the real X webapp — never a plain browser window.
 
 ## Uninstall

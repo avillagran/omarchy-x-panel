@@ -35,14 +35,30 @@ export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-1}"
 # return of "" means "unreadable / unsafe / too large" — never a hang or an
 # unbounded slurp of another user's runtime namespace.
 MAX_READ=262144
-read_file_safe() {                 # read a real file (state, prefs, hyprland.lua)
+# Open once with O_NOFOLLOW | O_NONBLOCK, verify via fstat, and read from that
+# exact descriptor. This closes the TOCTOU gap where the path is checked, then
+# replaced by a symlink/FIFO/special file before the actual read. Returns empty
+# and exit 1 if anything looks unsafe or too large.
+read_file_safe() {
   local f="$1"
-  [ -e "$f" ] || { printf ''; return 1; }
-  [ -f "$f" ] && [ ! -L "$f" ] || { printf ''; return 1; }
-  local sz; sz=$(wc -c < "$f" 2>/dev/null || echo 0)
-  case "$sz" in (*[!0-9]*) sz=0 ;; esac
-  [ "$sz" -le "$MAX_READ" ] || { printf ''; return 1; }
-  timeout 5 head -c "$MAX_READ" "$f" 2>/dev/null || true
+  python3 - "$f" "$MAX_READ" <<'PY'
+import os, sys, stat
+path, maxb = sys.argv[1], int(sys.argv[2])
+try:
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+except Exception:
+    sys.exit(1)
+try:
+    st = os.fstat(fd)
+    if not stat.S_ISREG(st.st_mode) or st.st_size > maxb:
+        sys.exit(1)
+    data = os.read(fd, maxb)
+    if len(data) > maxb:
+        sys.exit(1)
+    sys.stdout.buffer.write(data)
+finally:
+    os.close(fd)
+PY
 }
 hypr_json() {                      # run a hyprctl -j query, read it safely
   local tmp; tmp=$(mktemp -p "$RUNDIR") || { printf ''; return 1; }
@@ -52,6 +68,7 @@ hypr_json() {                      # run a hyprctl -j query, read it safely
   rm -f "$tmp"
 }
 
+LOG="$RUNDIR/x-panel.log"
 SPECIAL="special:sidepanelX"
 X_CLASS="chrome-x.com__-Default"
 BAR_NS="omarchy-bar"
@@ -60,7 +77,8 @@ GAP=8
 # ---- prefs ----------------------------------------------------------------
 default_prefs() { echo '{"side":"right","valign":"top","width":420,"height":900}'; }
 read_prefs() {
-  if [ -s "$PREFS" ]; then jq -c . "$PREFS" 2>/dev/null || default_prefs
+  local raw; raw=$(read_file_safe "$PREFS")
+  if [ -n "$raw" ]; then printf '%s' "$raw" | jq -c . 2>/dev/null || default_prefs
   else default_prefs; fi
 }
 write_prefs() {
@@ -239,9 +257,9 @@ launch_or_reuse() {
     # `setsid uwsm-app --` — the double wrap eats the --app arg and opens a plain
     # empty browser window instead of the webapp.
     if [ -f "$HOME/.local/share/applications/X.desktop" ] || [ -f /usr/share/applications/X.desktop ]; then
-      ( uwsm-app -- X.desktop >/tmp/x-panel.log 2>&1 & )
+      ( uwsm-app -- X.desktop >"$LOG" 2>&1 & )
     else
-      ( omarchy-launch-webapp "$X_URL" >/tmp/x-panel.log 2>&1 & )
+      ( omarchy-launch-webapp "$X_URL" >"$LOG" 2>&1 & )
     fi
     for _ in $(seq 1 40); do
       sleep 0.3; ap=$(find_x); [ -n "$ap" ] && break
@@ -339,7 +357,7 @@ bind_toggle() {
 
 main() {
   local saved ap st
-  saved=$(cat "$STATE" 2>/dev/null | tr -d '[:space:]')
+  saved=$(read_file_safe "$STATE" | tr -d '[:space:]')
   ap=$(resolve "$saved")
   if [ -z "$ap" ]; then rm -f "$STATE"; launch_or_reuse; return; fi
   write_state "$ap"
@@ -358,19 +376,19 @@ case "${1:-toggle}" in
   bind-status) bind_status ;;
   toggle) main ;;
   show)
-    saved=$(cat "$STATE" 2>/dev/null | tr -d '[:space:]'); ap=$(resolve "$saved")
+    saved=$(read_file_safe "$STATE" | tr -d '[:space:]'); ap=$(resolve "$saved")
     if [ -z "$ap" ]; then launch_or_reuse; else write_state "$ap"; show_window "$ap"; fi
     ;;
   hide)
-    saved=$(cat "$STATE" 2>/dev/null | tr -d '[:space:]'); ap=$(resolve "$saved")
+    saved=$(read_file_safe "$STATE" | tr -d '[:space:]'); ap=$(resolve "$saved")
     [ -n "$ap" ] && hide_window "$ap"
     ;;
   is-visible)
-    saved=$(cat "$STATE" 2>/dev/null | tr -d '[:space:]'); ap=$(resolve "$saved")
+    saved=$(read_file_safe "$STATE" | tr -d '[:space:]'); ap=$(resolve "$saved")
     [ -n "$ap" ] && [ "$(state_of "$ap")" = "visible" ] && exit 0 || exit 1
     ;;
   close)
-    saved=$(cat "$STATE" 2>/dev/null | tr -d '[:space:]'); ap=$(resolve "$saved")
+    saved=$(read_file_safe "$STATE" | tr -d '[:space:]'); ap=$(resolve "$saved")
     if [ -n "$ap" ]; then a="${ap%%|*}"; hyprctl dispatch "hl.dsp.window.close({ window = \"address:$a\" })" >/dev/null 2>&1; fi
     rm -f "$STATE"
     ;;
@@ -378,7 +396,7 @@ case "${1:-toggle}" in
     key="$2"; val="$3"
     if [ -z "$key" ] || [ -z "$val" ]; then echo "usage: set-pref <key> <json-value>" >&2; exit 1; fi
     write_prefs "$key" "$val"
-    saved=$(cat "$STATE" 2>/dev/null | tr -d '[:space:]'); ap=$(resolve "$saved")
+    saved=$(read_file_safe "$STATE" | tr -d '[:space:]'); ap=$(resolve "$saved")
     if [ -z "$ap" ]; then
       launch_or_reuse   # window was closed: launch and show it
     else
@@ -398,7 +416,7 @@ case "${1:-toggle}" in
   prefs-open)
     # Make the X window visible (behind the always-on-top prefs panel) so the
     # user can preview changes without the panel stealing focus.
-    saved=$(cat "$STATE" 2>/dev/null | tr -d '[:space:]'); ap=$(resolve "$saved")
+    saved=$(read_file_safe "$STATE" | tr -d '[:space:]'); ap=$(resolve "$saved")
     if [ -n "$ap" ]; then
       write_state "$ap"
       if [ "$(state_of "$ap")" = "gone" ]; then launch_or_reuse
@@ -410,7 +428,7 @@ case "${1:-toggle}" in
     ;;
   prefs-close)
     # Restore the X window to its normal position.
-    saved=$(cat "$STATE" 2>/dev/null | tr -d '[:space:]'); ap=$(resolve "$saved")
+    saved=$(read_file_safe "$STATE" | tr -d '[:space:]'); ap=$(resolve "$saved")
     if [ -n "$ap" ]; then
       write_state "$ap"
       [ "$(state_of "$ap")" = "gone" ] && launch_or_reuse || apply_layout "$ap"
