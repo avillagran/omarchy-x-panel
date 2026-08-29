@@ -69,7 +69,11 @@ hypr_json() {                      # run a hyprctl -j query, read it safely
 }
 
 SPECIAL="special:sidepanelX"
-X_CLASS="chrome-x.com__-Default"
+# Omarchy webapp window classes are <browser>-<host><path>-<profile>, so both
+# the browser prefix and the profile suffix vary with the user's setup: Brave
+# gives brave-x.com__-Default, a secondary profile gives ...-Profile_2. Match
+# on a regex rather than one hardcoded string.
+X_CLASS="^(chrome|chromium|brave)-x\\.com__.*"
 BAR_NS="omarchy-bar"
 GAP=8
 
@@ -100,7 +104,7 @@ pref() { read_prefs | jq -r --arg k "$1" '.[$k]'; }
 # ---- hyprland helpers -----------------------------------------------------
 find_x() {
   hypr_json hyprctl clients -j 2>/dev/null | jq -r --arg c "$X_CLASS" \
-    '.[] | select(.class==$c) | "\(.address)|\(.pid)"' | head -n1 || true
+    '.[] | select((.class // "") | test($c)) | "\(.address)|\(.pid)"' | head -n1 || true
 }
 addr_alive() {
   local a="$1"; [ -z "$a" ] && return 1
@@ -116,7 +120,7 @@ resolve() {
   if pid_alive "$p"; then
     # Chromium shares the browser pid across windows, so the pid lookup MUST
     # also match the X class — otherwise we adopt a non-X Chromium window.
-    cur=$(hypr_json hyprctl clients -j 2>/dev/null | jq -r --arg p "$p" --arg c "$X_CLASS" '.[] | select(.pid==($p|tonumber) and .class==$c) | "\(.address)|\(.pid)"' | head -n1 || true)
+    cur=$(hypr_json hyprctl clients -j 2>/dev/null | jq -r --arg p "$p" --arg c "$X_CLASS" '.[] | select(.pid==($p|tonumber) and ((.class // "") | test($c))) | "\(.address)|\(.pid)"' | head -n1 || true)
     [ -n "$cur" ] && { echo "$cur"; return; }
   fi
   cur=$(find_x); [ -n "$cur" ] && { echo "$cur"; return; }
