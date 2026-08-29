@@ -162,8 +162,17 @@ ensure_float() {
   if [ "$cur" != "true" ]; then hl_float "$a"; fi
 }
 
+# The focused monitor, not blindly the first one in hyprctl's list.
+MON_SELECT='if type=="array" then ((map(select(.focused)) | .[0]) // .[0]) else . end'
 monitor_size() {
-  hypr_json hyprctl monitors -j 2>/dev/null | jq -r 'if type=="array" then .[0] else . end | "\(.width / (.scale // 1) | floor) \(.height / (.scale // 1) | floor)"' 2>/dev/null || true
+  hypr_json hyprctl monitors -j 2>/dev/null | jq -r "$MON_SELECT"' | "\(.width / (.scale // 1) | floor) \(.height / (.scale // 1) | floor)"' 2>/dev/null || true
+}
+
+# Monitor origin in the global layout ("mx my"). Hyprland positions windows in
+# absolute layout coordinates, so a position computed relative to the monitor
+# has to be shifted by this before it is dispatched.
+monitor_origin() {
+  hypr_json hyprctl monitors -j 2>/dev/null | jq -r "$MON_SELECT"' | "\(.x) \(.y)"' 2>/dev/null || true
 }
 
 # Quickshell bar strip geometry: "barY barH" in logical px (or "0 0" if not found).
@@ -227,10 +236,14 @@ compute_xy() {
 }
 
 apply_layout() {
-  local ap="$1" a="${1%%|*}" side valign w h ms mw mh bg by bh sa sy sh xy x y yoff="${2:-0}"
+  local ap="$1" a="${1%%|*}" side valign w h ms mw mh mo mx my bg by bh sa sy sh xy x y yoff="${2:-0}"
   side=$(pref side); valign=$(pref valign)
   ms=$(monitor_size); mw="${ms%% *}"; mh="${ms##* }"
+  mo=$(monitor_origin); mx="${mo%% *}"; my="${mo##* }"
   bg=$(bar_geom); by="${bg%% *}"; bh="${bg##* }"
+  # hyprctl layers reports the bar in absolute coordinates; safe_area reasons
+  # in monitor-relative ones.
+  by=$(( by - my ))
   sa=$(safe_area "$mw" "$mh" "$by" "$bh"); sy="${sa%% *}"; sh="${sa##* }"
   w=$(px_value "$(pref width)" w "$mw")
   h=$(px_value "$(pref height)" h "$sh")
@@ -249,6 +262,8 @@ apply_layout() {
   esac
   y=$(( y + yoff ))
   [ "$y" -lt 0 ] && y=0
+  # Back into absolute layout coordinates for the dispatch.
+  x=$(( x + mx )); y=$(( y + my ))
   hl_resize "$a" "$w" "$h"; hl_movepos "$a" "$x" "$y"
 }
 
