@@ -183,8 +183,8 @@ bar_geom() {
   line=$(hypr_json hyprctl layers 2>/dev/null | grep -E "namespace: $BAR_NS" | head -n1 || true)
   if [ -z "$line" ]; then echo "0 0"; return; fi
   # line looks like: Layer <addr>: xywh: X Y W H, a: A, namespace: omarchy-bar, pid: N
-  by=$(echo "$line" | sed -E 's/.*xywh: [0-9]+ ([0-9]+) [0-9]+ ([0-9]+).*/\1/')
-  bh=$(echo "$line" | sed -E 's/.*xywh: [0-9]+ [0-9]+ [0-9]+ ([0-9]+).*/\1/')
+  by=$(echo "$line" | sed -E 's/.*xywh: [-0-9]+ ([-0-9]+) [-0-9]+ ([-0-9]+).*/\1/')
+  bh=$(echo "$line" | sed -E 's/.*xywh: [-0-9]+ [-0-9]+ [-0-9]+ ([-0-9]+).*/\1/')
   [ -z "$by" ] && by=0
   [ -z "$bh" ] && bh=0
   echo "$by $bh"
