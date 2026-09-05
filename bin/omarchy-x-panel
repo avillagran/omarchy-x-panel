@@ -73,7 +73,7 @@ SPECIAL="special:sidepanelX"
 # the browser prefix and the profile suffix vary with the user's setup: Brave
 # gives brave-x.com__-Default, a secondary profile gives ...-Profile_2. Match
 # on a regex rather than one hardcoded string.
-X_CLASS="^(chrome|chromium|brave)-x\\.com__.*"
+X_CLASS="^(chrome|chromium|brave|msedge|edge|vivaldi|opera)-x\.com__.*"
 BAR_NS="omarchy-bar"
 GAP=8
 
