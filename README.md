@@ -46,7 +46,7 @@ default X webapp bind (which relaunches a fresh window every time). This is
 **opt-in**: the plugin never touches your Hyprland config on install or load.
 Open the preferences panel (right-click the bar icon) and switch on *Keyboard
 shortcut* — only then does the plugin write `~/.config/hypr/x-panel-bindings.lua`
-and append a single `require("x-panel-bindings")` line to
+and append a single `require("hypr.x-panel-bindings")` line to
 `~/.config/hypr/hyprland.lua` (idempotent, atomic writes). Switching it off
 removes both and restores Omarchy's default bind.
 
@@ -69,13 +69,20 @@ removes both and restores Omarchy's default bind.
 omarchy plugin remove io.github.avillagran.omarchy-x-panel
 ```
 
-Then delete the generated keybind file and its require line to restore Omarchy's
-default X bind:
+If you turned the keybind on, turn it off first in the preferences panel; that
+removes both generated changes. If the plugin is already gone, delete them by hand
+to restore Omarchy's default X bind:
 
 ```bash
+sed -i '/require("hypr.x-panel-bindings")/d' ~/.config/hypr/hyprland.lua
 rm -f ~/.config/hypr/x-panel-bindings.lua
-sed -i '/require("x-panel-bindings")/d' ~/.config/hypr/hyprland.lua
-hyprctl reload
+```
+
+Preferences are kept outside the plugin directory, so removal leaves them. To
+delete them too:
+
+```bash
+rm -rf ~/.config/omarchy-x-panel
 ```
 
 ## License
