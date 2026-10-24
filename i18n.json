@@ -18,7 +18,16 @@
     "disabled": "Disabled",
     "currentState": "Current state",
     "enable": "Enable",
-    "disable": "Disable"
+    "disable": "Disable",
+    "autoRefresh": "Auto-refresh",
+    "afterHidden": "reload when shown after %1 hidden",
+    "off": "Off",
+    "reloadNow": "Reload now",
+    "dragHint": "Drag the corners of the panel to resize it. The size is saved per monitor.",
+    "watchdog": "Reload if X breaks",
+    "watchdogDesc": "Reloads the page when its title shows it failed to load, unless you are using it.",
+    "autohide": "Hide on focus loss",
+    "autohideDesc": "Hides the panel when you switch to another window."
   },
   "es": {
     "title": "X Panel — Preferencias",
@@ -39,7 +48,16 @@
     "disabled": "Desactivado",
     "currentState": "Estado actual",
     "enable": "Activar",
-    "disable": "Desactivar"
+    "disable": "Desactivar",
+    "autoRefresh": "Auto-refresco",
+    "afterHidden": "recargar al mostrar tras %1 oculto",
+    "off": "No",
+    "reloadNow": "Recargar ahora",
+    "dragHint": "Arrastra las esquinas del panel para cambiar su tamaño. Se guarda por monitor.",
+    "watchdog": "Recargar si X falla",
+    "watchdogDesc": "Recarga la página si su título indica que no cargó, salvo mientras la usas.",
+    "autohide": "Ocultar al perder el foco",
+    "autohideDesc": "Oculta el panel al cambiar a otra ventana."
   },
   "pt": {
     "title": "X Panel — Preferências",
@@ -60,7 +78,16 @@
     "disabled": "Desativado",
     "currentState": "Estado atual",
     "enable": "Ativar",
-    "disable": "Desativar"
+    "disable": "Desativar",
+    "autoRefresh": "Atualização automática",
+    "afterHidden": "recarregar ao mostrar após %1 oculto",
+    "off": "Não",
+    "reloadNow": "Recarregar agora",
+    "dragHint": "Arraste os cantos do painel para redimensioná-lo. O tamanho é salvo por monitor.",
+    "watchdog": "Recarregar se o X falhar",
+    "watchdogDesc": "Recarrega a página quando o título indica que ela não carregou, exceto enquanto você a usa.",
+    "autohide": "Ocultar ao perder o foco",
+    "autohideDesc": "Oculta o painel ao mudar para outra janela."
   },
   "fr": {
     "title": "X Panel — Préférences",
@@ -81,7 +108,16 @@
     "disabled": "Désactivé",
     "currentState": "État actuel",
     "enable": "Activer",
-    "disable": "Désactiver"
+    "disable": "Désactiver",
+    "autoRefresh": "Actualisation auto",
+    "afterHidden": "recharger à l'affichage après %1 masqué",
+    "off": "Non",
+    "reloadNow": "Recharger",
+    "dragHint": "Faites glisser les coins du panneau pour le redimensionner. La taille est enregistrée par écran.",
+    "watchdog": "Recharger si X plante",
+    "watchdogDesc": "Recharge la page quand son titre indique un échec de chargement, sauf pendant que vous l'utilisez.",
+    "autohide": "Masquer à la perte du focus",
+    "autohideDesc": "Masque le panneau quand vous passez à une autre fenêtre."
   },
   "de": {
     "title": "X Panel — Einstellungen",
@@ -102,7 +138,16 @@
     "disabled": "Deaktiviert",
     "currentState": "Aktueller Status",
     "enable": "Aktivieren",
-    "disable": "Deaktivieren"
+    "disable": "Deaktivieren",
+    "autoRefresh": "Auto-Aktualisierung",
+    "afterHidden": "beim Anzeigen nach %1 verborgen neu laden",
+    "off": "Aus",
+    "reloadNow": "Jetzt neu laden",
+    "dragHint": "Ziehen Sie an den Ecken, um die Größe des Panels zu ändern. Die Größe wird pro Monitor gespeichert.",
+    "watchdog": "Neu laden, wenn X hängt",
+    "watchdogDesc": "Lädt die Seite neu, wenn ihr Titel einen Ladefehler zeigt – außer während Sie sie benutzen.",
+    "autohide": "Bei Fokusverlust ausblenden",
+    "autohideDesc": "Blendet das Panel aus, wenn Sie zu einem anderen Fenster wechseln."
   },
   "it": {
     "title": "X Panel — Preferenze",
@@ -123,7 +168,16 @@
     "disabled": "Disattivato",
     "currentState": "Stato attuale",
     "enable": "Attiva",
-    "disable": "Disattiva"
+    "disable": "Disattiva",
+    "autoRefresh": "Aggiornamento automatico",
+    "afterHidden": "ricarica alla visualizzazione dopo %1 nascosto",
+    "off": "No",
+    "reloadNow": "Ricarica ora",
+    "dragHint": "Trascina gli angoli del pannello per ridimensionarlo. La dimensione viene salvata per monitor.",
+    "watchdog": "Ricarica se X si blocca",
+    "watchdogDesc": "Ricarica la pagina quando il titolo indica che non si è caricata, tranne mentre la usi.",
+    "autohide": "Nascondi alla perdita del focus",
+    "autohideDesc": "Nasconde il pannello quando passi a un'altra finestra."
   },
   "nl": {
     "title": "X Panel — Voorkeuren",
@@ -144,7 +198,16 @@
     "disabled": "Uitgeschakeld",
     "currentState": "Huidige status",
     "enable": "Inschakelen",
-    "disable": "Uitschakelen"
+    "disable": "Uitschakelen",
+    "autoRefresh": "Automatisch verversen",
+    "afterHidden": "herladen bij tonen na %1 verborgen",
+    "off": "Uit",
+    "reloadNow": "Nu herladen",
+    "dragHint": "Sleep de hoeken van het paneel om het formaat te wijzigen. De grootte wordt per monitor opgeslagen.",
+    "watchdog": "Herladen als X vastloopt",
+    "watchdogDesc": "Herlaadt de pagina als de titel aangeeft dat laden mislukte, behalve terwijl je hem gebruikt.",
+    "autohide": "Verbergen bij focusverlies",
+    "autohideDesc": "Verbergt het paneel als je naar een ander venster gaat."
   },
   "pl": {
     "title": "X Panel — Preferencje",
@@ -165,7 +228,16 @@
     "disabled": "Wyłączony",
     "currentState": "Aktualny stan",
     "enable": "Włącz",
-    "disable": "Wyłącz"
+    "disable": "Wyłącz",
+    "autoRefresh": "Autoodświeżanie",
+    "afterHidden": "przeładuj po pokazaniu, gdy ukryty %1",
+    "off": "Wył.",
+    "reloadNow": "Przeładuj teraz",
+    "dragHint": "Przeciągnij rogi panelu, aby zmienić jego rozmiar. Rozmiar jest zapisywany dla każdego monitora.",
+    "watchdog": "Przeładuj, gdy X się zawiesi",
+    "watchdogDesc": "Przeładowuje stronę, gdy jej tytuł wskazuje błąd ładowania, chyba że z niej korzystasz.",
+    "autohide": "Ukryj po utracie fokusu",
+    "autohideDesc": "Ukrywa panel po przełączeniu na inne okno."
   },
   "ru": {
     "title": "X Panel — Настройки",
@@ -186,7 +258,16 @@
     "disabled": "Выключено",
     "currentState": "Текущее состояние",
     "enable": "Включить",
-    "disable": "Выключить"
+    "disable": "Выключить",
+    "autoRefresh": "Автообновление",
+    "afterHidden": "перезагружать при показе после %1 скрытия",
+    "off": "Выкл.",
+    "reloadNow": "Обновить сейчас",
+    "dragHint": "Перетащите углы панели, чтобы изменить её размер. Размер сохраняется для каждого монитора.",
+    "watchdog": "Перезагружать при сбое X",
+    "watchdogDesc": "Перезагружает страницу, если её заголовок показывает ошибку загрузки, но не пока вы ею пользуетесь.",
+    "autohide": "Скрывать при потере фокуса",
+    "autohideDesc": "Скрывает панель при переходе в другое окно."
   },
   "ja": {
     "title": "X Panel — 設定",
@@ -207,7 +288,16 @@
     "disabled": "無効",
     "currentState": "現在の状態",
     "enable": "有効にする",
-    "disable": "無効にする"
+    "disable": "無効にする",
+    "autoRefresh": "自動更新",
+    "afterHidden": "%1 以上非表示の後に表示したら再読み込み",
+    "off": "オフ",
+    "reloadNow": "今すぐ再読み込み",
+    "dragHint": "パネルの角をドラッグしてサイズを変更できます。サイズはモニターごとに保存されます。",
+    "watchdog": "X が止まったら再読み込み",
+    "watchdogDesc": "タイトルが読み込み失敗を示したらページを再読み込みします（使用中は除く）。",
+    "autohide": "フォーカスを失ったら隠す",
+    "autohideDesc": "別のウィンドウに切り替えるとパネルを隠します。"
   },
   "ko": {
     "title": "X Panel — 환경설정",
@@ -228,7 +318,16 @@
     "disabled": "비활성화됨",
     "currentState": "현재 상태",
     "enable": "활성화",
-    "disable": "비활성화"
+    "disable": "비활성화",
+    "autoRefresh": "자동 새로고침",
+    "afterHidden": "%1 이상 숨긴 후 표시하면 새로고침",
+    "off": "끄기",
+    "reloadNow": "지금 새로고침",
+    "dragHint": "패널 모서리를 끌어 크기를 조절하세요. 크기는 모니터별로 저장됩니다.",
+    "watchdog": "X 오류 시 새로고침",
+    "watchdogDesc": "제목이 로드 실패를 나타내면 페이지를 새로고침합니다(사용 중일 때는 제외).",
+    "autohide": "포커스를 잃으면 숨기기",
+    "autohideDesc": "다른 창으로 전환하면 패널을 숨깁니다."
   },
   "zh": {
     "title": "X Panel — 偏好设置",
@@ -249,7 +348,16 @@
     "disabled": "已禁用",
     "currentState": "当前状态",
     "enable": "启用",
-    "disable": "禁用"
+    "disable": "禁用",
+    "autoRefresh": "自动刷新",
+    "afterHidden": "隐藏 %1 后再显示时重新加载",
+    "off": "关",
+    "reloadNow": "立即重新加载",
+    "dragHint": "拖动面板的角即可调整大小，尺寸按显示器分别保存。",
+    "watchdog": "X 出错时重新加载",
+    "watchdogDesc": "当页面标题显示加载失败时重新加载（正在使用时除外）。",
+    "autohide": "失去焦点时隐藏",
+    "autohideDesc": "切换到其他窗口时隐藏面板。"
   },
   "ar": {
     "title": "X Panel — التفضيلات",
@@ -270,7 +378,16 @@
     "disabled": "معطّل",
     "currentState": "الحالة الحالية",
     "enable": "تفعيل",
-    "disable": "تعطيل"
+    "disable": "تعطيل",
+    "autoRefresh": "تحديث تلقائي",
+    "afterHidden": "إعادة التحميل عند الإظهار بعد إخفاء %1",
+    "off": "إيقاف",
+    "reloadNow": "إعادة التحميل الآن",
+    "dragHint": "اسحب زوايا اللوحة لتغيير حجمها. يُحفظ الحجم لكل شاشة.",
+    "watchdog": "إعادة التحميل إذا تعطل X",
+    "watchdogDesc": "يعيد تحميل الصفحة عندما يشير عنوانها إلى فشل التحميل، إلا أثناء استخدامك لها.",
+    "autohide": "إخفاء عند فقدان التركيز",
+    "autohideDesc": "يخفي اللوحة عند الانتقال إلى نافذة أخرى."
   },
   "tr": {
     "title": "X Panel — Tercihler",
@@ -291,7 +408,16 @@
     "disabled": "Devre dışı",
     "currentState": "Geçerli durum",
     "enable": "Etkinleştir",
-    "disable": "Devre dışı bırak"
+    "disable": "Devre dışı bırak",
+    "autoRefresh": "Otomatik yenileme",
+    "afterHidden": "%1 gizli kaldıktan sonra gösterilince yenile",
+    "off": "Kapalı",
+    "reloadNow": "Şimdi yenile",
+    "dragHint": "Paneli yeniden boyutlandırmak için köşelerinden sürükleyin. Boyut her monitör için kaydedilir.",
+    "watchdog": "X bozulursa yeniden yükle",
+    "watchdogDesc": "Başlık sayfanın yüklenemediğini gösterdiğinde sayfayı yeniden yükler; kullanırken yapmaz.",
+    "autohide": "Odak kaybolunca gizle",
+    "autohideDesc": "Başka bir pencereye geçtiğinizde paneli gizler."
   },
   "sv": {
     "title": "X Panel — Inställningar",
@@ -312,7 +438,16 @@
     "disabled": "Inaktiverad",
     "currentState": "Aktuellt läge",
     "enable": "Aktivera",
-    "disable": "Inaktivera"
+    "disable": "Inaktivera",
+    "autoRefresh": "Automatisk uppdatering",
+    "afterHidden": "ladda om vid visning efter %1 dold",
+    "off": "Av",
+    "reloadNow": "Ladda om nu",
+    "dragHint": "Dra i panelens hörn för att ändra storlek. Storleken sparas per skärm.",
+    "watchdog": "Ladda om om X kraschar",
+    "watchdogDesc": "Laddar om sidan när titeln visar att den inte laddades, utom när du använder den.",
+    "autohide": "Dölj vid fokusförlust",
+    "autohideDesc": "Döljer panelen när du byter till ett annat fönster."
   },
   "da": {
     "title": "X Panel — Indstillinger",
@@ -333,7 +468,16 @@
     "disabled": "Deaktiveret",
     "currentState": "Aktuel status",
     "enable": "Aktivér",
-    "disable": "Deaktivér"
+    "disable": "Deaktivér",
+    "autoRefresh": "Automatisk opdatering",
+    "afterHidden": "genindlæs ved visning efter %1 skjult",
+    "off": "Fra",
+    "reloadNow": "Genindlæs nu",
+    "dragHint": "Træk i panelets hjørner for at ændre størrelsen. Størrelsen gemmes pr. skærm.",
+    "watchdog": "Genindlæs hvis X fejler",
+    "watchdogDesc": "Genindlæser siden, når titlen viser at den ikke blev indlæst, undtagen mens du bruger den.",
+    "autohide": "Skjul ved tab af fokus",
+    "autohideDesc": "Skjuler panelet, når du skifter til et andet vindue."
   },
   "no": {
     "title": "X Panel — Innstillinger",
@@ -354,7 +498,16 @@
     "disabled": "Deaktivert",
     "currentState": "Gjeldende status",
     "enable": "Aktiver",
-    "disable": "Deaktiver"
+    "disable": "Deaktiver",
+    "autoRefresh": "Automatisk oppdatering",
+    "afterHidden": "last inn på nytt ved visning etter %1 skjult",
+    "off": "Av",
+    "reloadNow": "Last inn nå",
+    "dragHint": "Dra i hjørnene på panelet for å endre størrelsen. Størrelsen lagres per skjerm.",
+    "watchdog": "Last inn på nytt hvis X feiler",
+    "watchdogDesc": "Laster inn siden på nytt når tittelen viser at den ikke ble lastet, unntatt mens du bruker den.",
+    "autohide": "Skjul ved tap av fokus",
+    "autohideDesc": "Skjuler panelet når du bytter til et annet vindu."
   },
   "fi": {
     "title": "X Panel — Asetukset",
@@ -375,7 +528,16 @@
     "disabled": "Pois käytöstä",
     "currentState": "Nykyinen tila",
     "enable": "Ota käyttöön",
-    "disable": "Poista käytöstä"
+    "disable": "Poista käytöstä",
+    "autoRefresh": "Automaattinen päivitys",
+    "afterHidden": "lataa uudelleen näytettäessä %1 piilossa olon jälkeen",
+    "off": "Pois",
+    "reloadNow": "Lataa nyt",
+    "dragHint": "Muuta paneelin kokoa vetämällä sen kulmista. Koko tallennetaan näyttökohtaisesti.",
+    "watchdog": "Lataa uudelleen, jos X kaatuu",
+    "watchdogDesc": "Lataa sivun uudelleen, kun sen otsikko kertoo latauksen epäonnistuneen, paitsi kun käytät sitä.",
+    "autohide": "Piilota, kun kohdistus katoaa",
+    "autohideDesc": "Piilottaa paneelin, kun siirryt toiseen ikkunaan."
   },
   "cs": {
     "title": "X Panel — Předvolby",
@@ -396,6 +558,15 @@
     "disabled": "Vypnuto",
     "currentState": "Aktuální stav",
     "enable": "Zapnout",
-    "disable": "Vypnout"
+    "disable": "Vypnout",
+    "autoRefresh": "Automatické obnovení",
+    "afterHidden": "znovu načíst při zobrazení po %1 skrytí",
+    "off": "Vyp.",
+    "reloadNow": "Načíst znovu",
+    "dragHint": "Velikost panelu změníte tažením za jeho rohy. Velikost se ukládá pro každý monitor.",
+    "watchdog": "Znovu načíst, když X selže",
+    "watchdogDesc": "Znovu načte stránku, když její titulek ukazuje chybu načítání, kromě doby, kdy ji používáte.",
+    "autohide": "Skrýt při ztrátě fokusu",
+    "autohideDesc": "Skryje panel, když přepnete do jiného okna."
   }
 }

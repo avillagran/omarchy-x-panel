@@ -10,8 +10,9 @@
 #
 # Layout is computed against the SAFE AREA: the monitor minus the Quickshell bar
 # strip (top or bottom), so the panel never covers the bar and respects a gap.
-# Identity is tracked as "address|pid". Preferences live in prefs.json and are
-# applied live via `set-pref <key> <value>`.
+# Identity is tracked as "address|pid". Preferences live in prefs.json under
+# $XDG_CONFIG_HOME (so they survive reboots) and are applied live via
+# `set-pref <key> <value>`.
 
 set -uo pipefail
 
@@ -22,8 +23,17 @@ SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 PLUGIN_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 PROFILE="${CHROMIUM_PROFILE:-$HOME/.config/chromium}"
 RUNDIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
-PREFS="$RUNDIR/omarchy-x-panel.prefs.json"
+# Prefs must outlive the session: $XDG_RUNTIME_DIR is a tmpfs wiped on every
+# logout/reboot, which silently reset size and position. They live outside the
+# plugin directory so writing them never triggers a plugin reload.
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/omarchy-x-panel"
+PREFS="$CONFIG_DIR/prefs.json"
+LEGACY_PREFS="$RUNDIR/omarchy-x-panel.prefs.json"   # pre-1.1 location, read once to migrate
 STATE="$RUNDIR/x-panel.state"   # stores "address|pid"
+HIDDEN_AT="$RUNDIR/x-panel.hidden-at"   # epoch seconds of the last hide
+STRIKES="$RUNDIR/x-panel.strikes"       # consecutive unhealthy watchdog checks
+LAST_RELOAD="$RUNDIR/x-panel.last-reload"   # epoch seconds of the last watchdog trigger
+PENDING="$RUNDIR/x-panel.reload-pending"    # watchdog asked for a reload on next focus
 
 export HYPRLAND_INSTANCE_SIGNATURE="${HYPRLAND_INSTANCE_SIGNATURE:-$(ls -1 "$RUNDIR"/hypr/ 2>/dev/null | grep -E '^[0-9a-f]{8}' | head -1)}"
 export XDG_RUNTIME_DIR="$RUNDIR"
@@ -78,20 +88,49 @@ BAR_NS="omarchy-bar"
 GAP=8
 
 # ---- prefs ----------------------------------------------------------------
-default_prefs() { echo '{"side":"right","valign":"top","width":420,"height":900}'; }
+# width/height are the defaults for any monitor; `monitors` holds per-monitor
+# overrides keyed by monitor_key (a laptop panel and an external screen with a
+# different scale rarely want the same size).
+default_prefs() { echo '{"side":"right","valign":"top","width":420,"height":"75%","refresh":60,"watchdog":true,"autohide":false,"monitors":{}}'; }
 read_prefs() {
   local raw; raw=$(read_file_safe "$PREFS")
-  if [ -n "$raw" ]; then printf '%s' "$raw" | jq -c . 2>/dev/null || default_prefs
+  [ -n "$raw" ] || raw=$(read_file_safe "$LEGACY_PREFS")
+  # Merge over the defaults so keys added in later versions always resolve.
+  if [ -n "$raw" ]; then printf '%s' "$raw" | jq -c --argjson d "$(default_prefs)" '$d + .' 2>/dev/null || default_prefs
   else default_prefs; fi
 }
-write_prefs() {
+# write_prefs_jq <filter> [jq args...]: apply a jq filter to the prefs.
+write_prefs_jq() {
   local cur; cur=$(read_prefs)
-  local tmp; tmp=$(mktemp -p "$RUNDIR")
-  if echo "$cur" | jq --arg k "$1" --argjson v "$2" '. + {($k): $v}' > "$tmp" 2>/dev/null; then
+  # Refuse a symlinked config dir (G12): the write must land where we think.
+  [ -L "$CONFIG_DIR" ] && return 1
+  mkdir -p -m 700 "$CONFIG_DIR" 2>/dev/null || return 1
+  local tmp; tmp=$(mktemp -p "$CONFIG_DIR") || return 1
+  local filter="$1"; shift
+  if echo "$cur" | jq "$@" "$filter" > "$tmp" 2>/dev/null; then
     mv "$tmp" "$PREFS"
   else
     rm -f "$tmp"
+    return 1
   fi
+}
+write_prefs() { write_prefs_jq '. + {($k): $v}' --arg k "$1" --argjson v "$2"; }
+# write_monitor_size <monitor-key> <key> <json-value>: per-monitor override,
+# also kept as the global default so a monitor seen for the first time starts
+# from the last size chosen anywhere.
+write_monitor_size() {
+  write_prefs_jq '.monitors = ((.monitors // {}) | .[$m] = ((.[$m] // {}) + {($k): $v})) | .[$k] = $v' \
+    --arg m "$1" --arg k "$2" --argjson v "$3"
+}
+
+# One-time move of pre-1.1 prefs out of the tmpfs, before the next reboot
+# wipes them. Goes through write_prefs, so it gets the same safe write path.
+migrate_prefs() {
+  [ -e "$PREFS" ] && return 0
+  local raw; raw=$(read_file_safe "$LEGACY_PREFS")
+  [ -n "$raw" ] || return 0
+  write_prefs side "$(printf '%s' "$raw" | jq -c '.side // "right"' 2>/dev/null || echo '"right"')" \
+    && rm -f "$LEGACY_PREFS"
 }
 
 # Atomic state-file write (exclusive temp in same dir, then mv -f) — G12.
@@ -129,6 +168,20 @@ resolve() {
 is_pinned() {
   local a="$1"; hypr_json hyprctl clients -j 2>/dev/null | jq -r --arg a "$a" '.[] | select(.address==$a) | .pinned' | head -n1 || true
 }
+
+# Chromium puts X's unread-notification count at the start of the webapp title,
+# e.g. "(3) Inicio / X". Reading the compositor title keeps this lightweight:
+# no second browser, API token, or browser-profile access is needed.
+unread_count() {
+  local title
+  title=$(hypr_json hyprctl clients -j 2>/dev/null | jq -r --arg c "$X_CLASS" \
+    '.[] | select((.class // "") | test($c)) | .title // ""' | head -n1 || true)
+  if [[ "$title" =~ ^\(([0-9][0-9,]*)\) ]]; then
+    printf '%s\n' "${BASH_REMATCH[1]//,/}"
+  else
+    printf '0\n'
+  fi
+}
 state_of() {
   local ap="$1" a="${1%%|*}"
   addr_alive "$a" || { echo "gone"; return; }
@@ -164,30 +217,35 @@ ensure_float() {
 
 # The focused monitor, not blindly the first one in hyprctl's list.
 MON_SELECT='if type=="array" then ((map(select(.focused)) | .[0]) // .[0]) else . end'
-monitor_size() {
-  hypr_json hyprctl monitors -j 2>/dev/null | jq -r "$MON_SELECT"' | "\(.width / (.scale // 1) | floor) \(.height / (.scale // 1) | floor)"' 2>/dev/null || true
+# One snapshot of the focused monitor: "name x y w h" — origin in absolute
+# layout coordinates, size in logical px. Hyprland positions windows in
+# absolute coordinates, so a position computed relative to the monitor has to
+# be shifted by the origin before it is dispatched.
+# Optional $1 = monitor id, to target the monitor a window is on rather than
+# the focused one. The trailing field is monitor_key: the EDID description
+# when there is one (so two different screens plugged into the same HDMI port
+# keep separate sizes), else the connector name (laptop panels have none).
+monitor_geom() {
+  local sel="$MON_SELECT"
+  [[ "${1:-}" =~ ^[0-9]+$ ]] && sel="if type==\"array\" then ((map(select(.id == $1)) | .[0]) // .[0]) else . end"
+  hypr_json hyprctl monitors -j 2>/dev/null | jq -r "$sel"' | "\(.name) \(.x) \(.y) \(.width / (.scale // 1) | floor) \(.height / (.scale // 1) | floor) \(if (.description // "") != "" then .description else .name end)"' 2>/dev/null || true
+}
+focused_monitor_key() { local g; g=$(monitor_geom); g="${g#* * * * * }"; echo "$g"; }
+# Effective "width height" prefs for monitor key $1.
+size_for() {
+  read_prefs | jq -r --arg m "$1" '(.monitors[$m] // {}) as $o | "\($o.width // .width) \($o.height // .height)"'
 }
 
-# Monitor origin in the global layout ("mx my"). Hyprland positions windows in
-# absolute layout coordinates, so a position computed relative to the monitor
-# has to be shifted by this before it is dispatched.
-monitor_origin() {
-  hypr_json hyprctl monitors -j 2>/dev/null | jq -r "$MON_SELECT"' | "\(.x) \(.y)"' 2>/dev/null || true
-}
-
-# Quickshell bar strip geometry: "barY barH" in logical px (or "0 0" if not found).
-# Detected from the layer named omarchy-bar. Works whether the bar is on the
+# Quickshell bar strip geometry on monitor $1: "barY barH" in absolute logical
+# px (or "0 0" if not found). Every monitor has its own omarchy-bar layer, so
+# the lookup MUST be scoped to the target monitor — taking the first one made
+# the panel cover the bar on any other screen. Works whether the bar is on the
 # top or the bottom edge.
 bar_geom() {
-  local line by bh
-  line=$(hypr_json hyprctl layers 2>/dev/null | grep -E "namespace: $BAR_NS" | head -n1 || true)
-  if [ -z "$line" ]; then echo "0 0"; return; fi
-  # line looks like: Layer <addr>: xywh: X Y W H, a: A, namespace: omarchy-bar, pid: N
-  by=$(echo "$line" | sed -E 's/.*xywh: [-0-9]+ ([-0-9]+) [-0-9]+ ([-0-9]+).*/\1/')
-  bh=$(echo "$line" | sed -E 's/.*xywh: [-0-9]+ [-0-9]+ [-0-9]+ ([-0-9]+).*/\1/')
-  [ -z "$by" ] && by=0
-  [ -z "$bh" ] && bh=0
-  echo "$by $bh"
+  local line
+  line=$(hypr_json hyprctl layers -j 2>/dev/null | jq -r --arg m "$1" --arg ns "$BAR_NS" \
+    '[(.[$m].levels // {})[][] | select(.namespace == $ns)] | .[0] // empty | "\(.y) \(.h)"' 2>/dev/null | head -n1 || true)
+  echo "${line:-0 0}"
 }
 
 # Safe area (logical px) = monitor minus the bar strip, with a gap.
@@ -235,18 +293,23 @@ compute_xy() {
   echo "$x|$y"
 }
 
+# apply_layout <address|pid> [monitor-id]: default is the focused monitor.
 apply_layout() {
-  local ap="$1" a="${1%%|*}" side valign w h ms mw mh mo mx my bg by bh sa sy sh xy x y yoff="${2:-0}"
+  local ap="$1" a="${1%%|*}" side valign w h mn mw mh mx my mk bg by bh sa sy sh x y sz
   side=$(pref side); valign=$(pref valign)
-  ms=$(monitor_size); mw="${ms%% *}"; mh="${ms##* }"
-  mo=$(monitor_origin); mx="${mo%% *}"; my="${mo##* }"
-  bg=$(bar_geom); by="${bg%% *}"; bh="${bg##* }"
+  read -r mn mx my mw mh mk <<< "$(monitor_geom "${2:-}")"
+  [ -n "$mh" ] || return 1
+  bg=$(bar_geom "$mn"); by="${bg%% *}"; bh="${bg##* }"
   # hyprctl layers reports the bar in absolute coordinates; safe_area reasons
   # in monitor-relative ones.
   by=$(( by - my ))
   sa=$(safe_area "$mw" "$mh" "$by" "$bh"); sy="${sa%% *}"; sh="${sa##* }"
-  w=$(px_value "$(pref width)" w "$mw")
-  h=$(px_value "$(pref height)" h "$sh")
+  sz=$(size_for "$mk")
+  w=$(px_value "${sz%% *}" w "$mw")
+  h=$(px_value "${sz##* }" h "$sh")
+  # A free-dragged size saved on a bigger screen must still fit this one.
+  [ "$w" -gt $(( mw - 40 )) ] && w=$(( mw - 40 ))
+  [ "$h" -gt "$sh" ] && h=$sh
   # recompute y with real h
   case "$valign" in
     top)    y=$sy ;;
@@ -260,7 +323,6 @@ apply_layout() {
     right)  x=$(( mw - w - 20 )) ;;
     *)      x=$(( mw - w - 20 )) ;;
   esac
-  y=$(( y + yoff ))
   [ "$y" -lt 0 ] && y=0
   # Back into absolute layout coordinates for the dispatch.
   x=$(( x + mx )); y=$(( y + my ))
@@ -290,6 +352,78 @@ launch_or_reuse() {
   ensure_pin "${ap%%|*}" true
 }
 
+# Reload the X page (F5) in the panel window only. Long-lived X tabs keep
+# growing (infinite timeline, media, websocket state) until they crawl or
+# crash; a reload returns them to a fresh baseline without losing the login.
+# Hyprland only delivers the key to the FOCUSED window, so callers focus the
+# panel first.
+reload_window() {
+  local a="$1"
+  hyprctl dispatch "hl.dsp.send_key_state({ mods = \"\", key = \"F5\", state = \"down\", window = \"address:$a\" })" >/dev/null 2>&1 || return 1
+  sleep 0.05
+  hyprctl dispatch "hl.dsp.send_key_state({ mods = \"\", key = \"F5\", state = \"up\", window = \"address:$a\" })" >/dev/null 2>&1
+}
+
+# Auto-refresh on show: only when the panel has been HIDDEN for at least
+# `refresh` minutes (0 = off). Nobody hides X mid-sentence and comes back an
+# hour later expecting the draft, while a tab left for hours is exactly the
+# one that degrades — so idle time is the safe proxy for "nothing written".
+# Returns 0 only if it reloaded.
+maybe_refresh() {
+  local a="$1" mins since
+  since=$(num_file "$HIDDEN_AT"); rm -f "$HIDDEN_AT"
+  mins=$(pref refresh); [[ "$mins" =~ ^[0-9]+$ ]] && [ "$mins" -gt 0 ] || return 1
+  [ "$since" -gt 0 ] && [ $(( $(date +%s) - since )) -ge $(( mins * 60 )) ] || return 1
+  reload_window "$a"
+}
+# Consume a watchdog-flagged reload (the panel has just got focus).
+reload_if_pending() {
+  [ -e "$PENDING" ] || return 1
+  rm -f "$PENDING"
+  reload_window "$1"
+}
+# On show, a page that is visibly broken is reloaded right away.
+reload_if_broken() {
+  local a="$1" title
+  [ "$(pref watchdog)" = "false" ] && return 0
+  title=$(window_field "$a" title)
+  [ -n "$title" ] && ! title_healthy "$title" && reload_window "$a"
+}
+
+# A loaded X page always titles itself "<page> / X" (optionally prefixed by an
+# unread count). Anything else for minutes on end — a bare host or URL from a
+# network error page, a stuck "X" splash — means the tab is broken.
+title_healthy() { [[ "$1" == *" / X" ]]; }
+window_field() {
+  hypr_json hyprctl clients -j 2>/dev/null | jq -r --arg a "$1" --arg f "$2" '.[] | select(.address==$a) | .[$f] | tostring' | head -n1 || true
+}
+num_file() { local v; v=$(read_file_safe "$1" | tr -d '[:space:]'); [[ "$v" =~ ^[0-9]+$ ]] && echo "$v" || echo 0; }
+write_num() { local tmp; tmp=$(mktemp -p "$RUNDIR") && echo "$2" > "$tmp" && mv -f "$tmp" "$1"; }
+
+# Watchdog, polled by the bar widget once a minute. After three consecutive
+# unhealthy titles it flags a reload, done the next time the panel is shown or
+# focused: the key can only reach a focused window, and stealing focus from
+# whatever you are typing in would be worse than a broken hidden tab. Never
+# while the panel has focus (you would see it, and you might be typing), and
+# at most once every 10 minutes so an offline machine does not loop.
+watchdog() {
+  [ "$(pref watchdog)" = "false" ] && return 0
+  local saved ap a title strikes now
+  saved=$(read_file_safe "$STATE" | tr -d '[:space:]'); ap=$(resolve "$saved"); a="${ap%%|*}"
+  [ -n "$a" ] || return 0
+  title=$(window_field "$a" title)
+  if [ -z "$title" ] || title_healthy "$title"; then rm -f "$STRIKES"; return 0; fi
+  [ "$(window_field "$a" focusHistoryID)" = "0" ] && return 0
+  strikes=$(( $(num_file "$STRIKES") + 1 ))
+  now=$(date +%s)
+  if [ "$strikes" -ge 3 ] && [ $(( now - $(num_file "$LAST_RELOAD") )) -ge 600 ]; then
+    write_num "$PENDING" "$now" && write_num "$LAST_RELOAD" "$now"
+    rm -f "$STRIKES"
+  else
+    write_num "$STRIKES" "$strikes"
+  fi
+}
+
 show_window() {
   local ap="$1" a="${1%%|*}"
   hl_move "$a" "+0" true
@@ -297,6 +431,7 @@ show_window() {
   ensure_pin "$a" true
   apply_layout "$ap"
   hl_focus "$a"
+  reload_if_pending "$a" || maybe_refresh "$a" || reload_if_broken "$a"
 }
 # Reveal without stealing focus — used while the preferences panel is open so it
 # keeps focus and stays up while you preview changes.
@@ -310,6 +445,57 @@ hide_window() {
   local ap="$1" a="${1%%|*}"
   ensure_pin "$a" false
   hl_move "$a" "$SPECIAL" false
+  local tmp; tmp=$(mktemp -p "$RUNDIR") && date +%s > "$tmp" && mv -f "$tmp" "$HIDDEN_AT"
+}
+
+# Panel geometry for the bar widget's resize grips, as one JSON line. x/y are
+# relative to the window's own monitor, whose origin is in mx/my. "visible"
+# means shown as the panel: pinned, floating, outside the hidden workspace.
+geom_json() {
+  local saved ap a clients mons
+  saved=$(read_file_safe "$STATE" | tr -d '[:space:]'); ap=$(resolve "$saved"); a="${ap%%|*}"
+  if [ -z "$a" ]; then echo '{"visible":false}'; return; fi
+  clients=$(hypr_json hyprctl clients -j); mons=$(hypr_json hyprctl monitors -j)
+  jq -cn --argjson c "${clients:-[]}" --argjson m "${mons:-[]}" --argjson p "$(read_prefs)" \
+    --arg a "$a" --arg sp "$SPECIAL" '
+    ($c | map(select(.address == $a)) | .[0]) as $w
+    | if $w == null or $w.workspace.name == $sp or ($w.pinned | not) or ($w.floating | not)
+      then {visible: false, address: $a}
+      else ($m | map(select(.id == $w.monitor)) | .[0]) as $mo
+      | {visible: true, address: $a, monitor: $mo.name, mx: $mo.x, my: $mo.y,
+         x: ($w.at[0] - $mo.x), y: ($w.at[1] - $mo.y), w: $w.size[0], h: $w.size[1],
+         focused: ($w.focusHistoryID == 0),
+         side: $p.side, valign: $p.valign}
+      end' 2>/dev/null || echo '{"visible":false}'
+}
+
+# set-size <w> <h>: persist a size dragged with the grips for the monitor the
+# panel is on, then re-anchor it there.
+set_size() {
+  local w="$1" h="$2" saved ap a mid mk
+  [[ "$w" =~ ^[0-9]+$ && "$h" =~ ^[0-9]+$ ]] || return 1
+  saved=$(read_file_safe "$STATE" | tr -d '[:space:]'); ap=$(resolve "$saved"); a="${ap%%|*}"
+  [ -n "$a" ] || return 1
+  mid=$(window_field "$a" monitor)
+  mk=$(monitor_geom "$mid"); mk="${mk#* * * * * }"
+  [ -n "$mk" ] || return 1
+  write_monitor_size "$mk" width "$w" && write_monitor_size "$mk" height "$h"
+  apply_layout "$ap" "$mid"
+}
+
+# hide-if-blurred <address>: focus moved to window $1 (from the widget's
+# activewindowv2 hook). Hide the panel unless that window is another X window
+# or a file-chooser portal opened from X (picking an image to post).
+hide_if_blurred() {
+  [ "$(pref autohide)" = "true" ] || return 0
+  local to="${1#0x}" saved ap a cls
+  [[ "$to" =~ ^[0-9a-f]+$ ]] || return 0
+  saved=$(read_file_safe "$STATE" | tr -d '[:space:]'); ap=$(resolve "$saved"); a="${ap%%|*}"
+  [ -n "$a" ] && [ -n "$to" ] && [ "${a#0x}" != "$to" ] || return 0
+  [ "$(state_of "$ap")" = "visible" ] || return 0
+  cls=$(window_field "0x$to" class)
+  [[ "$cls" =~ $X_CLASS || "$cls" == *portal* ]] && return 0
+  hide_window "$ap"
 }
 
 # ---- keybind self-install ---------------------------------------------------
@@ -387,12 +573,42 @@ main() {
   esac
 }
 
+migrate_prefs
+
 case "${1:-toggle}" in
   install-bind) ensure_keybind ;;
   uninstall-bind) remove_keybind ;;
   bind-toggle) bind_toggle ;;
   bind-status) bind_status ;;
-  get-prefs) read_prefs ;;
+  unread-count) unread_count ;;
+  reload)
+    # Manual reload: show the panel if hidden, focus it, then reload.
+    saved=$(read_file_safe "$STATE" | tr -d '[:space:]'); ap=$(resolve "$saved")
+    if [ -n "$ap" ]; then
+      case "$(state_of "$ap")" in
+        hidden) write_state "$ap"; rm -f "$HIDDEN_AT" "$PENDING"; show_window "$ap" ;;
+        visible) hl_focus "${ap%%|*}" ;;
+        *) exit 1 ;;
+      esac
+      sleep 0.1
+      reload_window "${ap%%|*}"
+    fi
+    ;;
+  focused)
+    # The widget saw the panel gain focus: run a reload the watchdog flagged.
+    saved=$(read_file_safe "$STATE" | tr -d '[:space:]'); ap=$(resolve "$saved")
+    [ -n "$ap" ] && reload_if_pending "${ap%%|*}"
+    ;;
+  get-prefs)
+    # Effective prefs for the focused monitor, so the preferences panel shows
+    # that monitor's size.
+    mk=$(focused_monitor_key)
+    read_prefs | jq -c --arg m "$mk" '. + (.monitors[$m] // {}) | del(.monitors) | .monitor = $m'
+    ;;
+  geom) geom_json ;;
+  set-size) set_size "${2:-}" "${3:-}" ;;
+  hide-if-blurred) hide_if_blurred "${2:-}" ;;
+  watchdog) watchdog ;;
   toggle) main ;;
   show)
     saved=$(read_file_safe "$STATE" | tr -d '[:space:]'); ap=$(resolve "$saved")
@@ -414,7 +630,12 @@ case "${1:-toggle}" in
   set-pref)
     key="$2"; val="$3"
     if [ -z "$key" ] || [ -z "$val" ]; then echo "usage: set-pref <key> <json-value>" >&2; exit 1; fi
-    write_prefs "$key" "$val"
+    case "$key" in
+      width|height) write_monitor_size "$(focused_monitor_key)" "$key" "$val" ;;
+      *) write_prefs "$key" "$val" ;;
+    esac
+    # Only layout prefs need the window shown and re-placed.
+    case "$key" in side|valign|width|height) ;; *) exit 0 ;; esac
     saved=$(read_file_safe "$STATE" | tr -d '[:space:]'); ap=$(resolve "$saved")
     if [ -z "$ap" ]; then
       launch_or_reuse   # window was closed: launch and show it

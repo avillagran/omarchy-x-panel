@@ -1,6 +1,8 @@
 // Sidepanel X — Opera-GX style always-on X (Twitter) side panel for Omarchy.
 // Left click: toggle the X window (show/hide without closing — session kept).
 // Right click: open the preferences popup (PopupWindow anchored under the icon).
+// While the panel is shown, grips on its free corners resize it; the size is
+// saved per monitor.
 //
 // The PopupWindow is declared inline (not via Loader) because a PopupWindow is
 // a top-level window and cannot be a Loader item child of a BarWidget — that
@@ -9,6 +11,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import Quickshell.Hyprland
+import Quickshell.Wayland
 import QtQuick.Controls
 import qs.Ui
 import qs.Commons
@@ -21,18 +24,74 @@ BarWidget {
   // (so it works after `omarchy plugin add` without copying to PATH).
   readonly property string binPath: Qt.resolvedUrl("bin/omarchy-x-panel").toString().replace("file://", "")
 
-  readonly property bool opened: panelState.visible
-  property var panelState: ({ visible: false })
+  readonly property bool opened: geom.visible === true
+  // Panel window geometry from the helper's `geom` (monitor-relative).
+  property var geom: ({ visible: false })
+  property bool geomPending: false
+  property bool panelFocused: false
+  // A fullscreen app on the active workspace hides the grips.
+  property bool fullscreenActive: false
+  readonly property string panelAddr: geom.address ? String(geom.address).replace(/^0x/, "") : ""
+  // Every monitor's bar mounts its own instance of this widget. Only one may
+  // drive the grips and hide-on-blur (the one on the panel's monitor), and
+  // only one may run the watchdog (the first screen's), or work is doubled.
+  readonly property string hostScreen: QsWindow.window && QsWindow.window.screen ? QsWindow.window.screen.name : ""
+  readonly property bool primaryBar: hostScreen === "" || Quickshell.screens.length === 0 || hostScreen === Quickshell.screens[0].name
+  readonly property bool ownsPanel: hostScreen === "" || (root.geom.monitor ? hostScreen === root.geom.monitor : primaryBar)
+  readonly property var panelScreen: {
+    var ss = Quickshell.screens
+    for (var i = 0; i < ss.length; i++)
+      if (ss[i].name === root.geom.monitor) return ss[i]
+    return null
+  }
+  property int unreadCount: 0
+  readonly property string unreadLabel: unreadCount > 99 ? "99+" : String(unreadCount)
 
-  function refresh() { visProc.running = true }
+  function refresh() {
+    if (geomProc.running) root.geomPending = true
+    else geomProc.running = true
+  }
+  function applyGeom(data) {
+    try {
+      var g = JSON.parse(data || "{}")
+      root.geom = g
+      root.panelFocused = g.focused === true
+      if (!gripLayer.dragging) gripLayer.syncFromGeom()
+    } catch (e) {}
+  }
+  function refreshUnread() { unreadProc.running = true }
 
   Process {
-    id: visProc
-    command: [root.binPath, "is-visible"]
+    id: unreadProc
+    command: [root.binPath, "unread-count"]
     running: false
-    onExited: function (exitCode) {
-      panelState.visible = (exitCode === 0)
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        var parsed = Number(text.trim())
+        root.unreadCount = isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 0
+      }
     }
+  }
+
+  // Chromium updates the X webapp title when notifications arrive. A modest
+  // polling interval keeps the bar current without touching the browser.
+  Timer {
+    interval: 12000
+    repeat: true
+    running: true
+    onTriggered: root.refreshUnread()
+  }
+
+  Process {
+    id: geomProc
+    command: [root.binPath, "geom"]
+    running: false
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: root.applyGeom(text)
+    }
+    onExited: if (root.geomPending) { root.geomPending = false; running = true }
   }
 
   Timer {
@@ -41,9 +100,56 @@ BarWidget {
     repeat: false
     onTriggered: root.refresh()
   }
+  // Helper actions take a moment (move, resize, focus), so read the geometry
+  // once they have settled.
+  Timer {
+    id: settleTimer
+    interval: 900
+    repeat: false
+    onTriggered: root.refresh()
+  }
+
+  // Hyprland events keep the grips and the focus state current. activewindowv2
+  // also drives hide-on-blur: only a focus change AWAY from the panel counts.
+  Connections {
+    target: Hyprland
+    function onRawEvent(event) {
+      if (!event) return
+      var name = String(event.name || "")
+      if (name === "activewindowv2") {
+        var addr = String(event.data || "").replace(/^0x/, "")
+        var wasFocused = root.panelFocused
+        root.panelFocused = addr !== "" && addr === root.panelAddr
+        if (root.panelFocused) {
+          pollTimer.restart()
+          if (!wasFocused && root.ownsPanel && root.curWatchdog)
+            Quickshell.execDetached([root.binPath, "focused"])
+        }
+        else if (wasFocused && addr !== "" && root.ownsPanel && root.curAutohide && !popup.popupOpen && !gripLayer.dragging)
+          Quickshell.execDetached([root.binPath, "hide-if-blurred", addr])
+      } else if (name === "fullscreen") {
+        root.fullscreenActive = String(event.data || "") === "1"
+      } else if (name === "movewindowv2" || name === "openwindow" || name === "closewindow"
+                 || name === "changefloatingmode" || name === "pin"
+                 || name === "monitoradded" || name === "monitorremoved") {
+        pollTimer.restart()
+      }
+    }
+  }
+
+  // Watchdog: the helper flags a reload if X's title says the page is broken
+  // for several checks in a row; it runs when the panel next gets focus.
+  Process { id: watchdogProc; command: [root.binPath, "watchdog"]; running: false }
+  Timer {
+    interval: 60000
+    repeat: true
+    running: root.curWatchdog && root.primaryBar
+    onTriggered: watchdogProc.running = true
+  }
 
   Component.onCompleted: {
     root.refresh()
+    root.refreshUnread()
     // Load prefs + i18n via Process+StdioCollector (same robust pattern as the
     // Omarchy Control Panel) instead of FileView, which does not auto-load
     // without running:true in this Quickshell build.
@@ -79,6 +185,10 @@ BarWidget {
   property string curValign: "top"
   property var curWidth: 420
   property var curHeight: "75%"
+  property int curRefresh: 60
+  property bool curWatchdog: true
+  property bool curAutohide: false
+  property string curMonitor: ""
 
   function applyPrefs(data) {
     try {
@@ -87,6 +197,10 @@ BarWidget {
       if (d.valign) root.curValign = d.valign
       if (d.width !== undefined) root.curWidth = d.width
       if (d.height !== undefined) root.curHeight = d.height
+      if (d.refresh !== undefined) root.curRefresh = d.refresh
+      if (d.watchdog !== undefined) root.curWatchdog = d.watchdog
+      if (d.autohide !== undefined) root.curAutohide = d.autohide
+      if (d.monitor !== undefined) root.curMonitor = d.monitor
     } catch (e) {}
   }
 
@@ -146,8 +260,11 @@ BarWidget {
     }
   }
 
+  function refreshLabel(m) { return m >= 60 ? (m / 60) + " h" : m + " min" }
+
   function setPref(key, value) {
     Quickshell.execDetached([root.binPath, "set-pref", key, String(value)])
+    settleTimer.restart()
   }
 
   // In-panel keyboard shortcut helpers: % cycles height, + cycles width.
@@ -177,6 +294,163 @@ BarWidget {
       if (b === Qt.LeftButton) root.toggle()
       else if (b === Qt.RightButton) popup.togglePanel()
     }
+
+    // Raised count bubble: visually reads as Xⁿ while retaining the normal
+    // widget hit target underneath.
+    Rectangle {
+      visible: root.unreadCount > 0
+      z: 2
+      anchors.top: parent.top
+      anchors.right: parent.right
+      anchors.topMargin: 1
+      anchors.rightMargin: 1
+      width: Math.max(height, unreadText.implicitWidth + 6)
+      height: Math.max(12, Style.spaceReal(12))
+      radius: height / 2
+      color: button.activeColor
+
+      Text {
+        textFormat: Text.PlainText
+        id: unreadText
+        anchors.centerIn: parent
+        text: root.unreadLabel
+        color: Color.background
+        font.family: button.fontFamily
+        font.pixelSize: Math.max(7, parent.height * 0.64)
+        font.bold: true
+        renderType: Text.NativeRendering
+      }
+    }
+  }
+
+  // --- resize grips --------------------------------------------------------
+  // A transparent overlay on the panel's monitor whose input region is only
+  // the grips. The panel is anchored by side/valign, so the anchored edges stay
+  // put: a grip resizes along each axis whose edge is free (both edges when
+  // centered). The window follows live; the size is saved on release.
+  component Grip: Item {
+    id: grip
+    required property int hdir   // -1 left edge, +1 right edge
+    required property int vdir   // -1 top edge, +1 bottom edge
+    // Inline components cannot see this file's ids, so the overlay is passed in.
+    required property var host
+    readonly property bool freeH: grip.host.freeH(hdir)
+    readonly property bool freeV: grip.host.freeV(vdir)
+    readonly property int size: Style.space(14)
+
+    // Same discreet corner mark as Omarchy's pinned panels: a faint ◢ turned
+    // to face its corner, brighter on hover. Inside the panel's corner: with
+    // focus-follows-mouse, reaching a grip must not cross another window.
+    width: (freeH || freeV) ? size : 0
+    height: width
+    x: hdir < 0 ? grip.host.liveX : grip.host.liveX + grip.host.liveW - size
+    y: vdir < 0 ? grip.host.liveY : grip.host.liveY + grip.host.liveH - size
+
+    Text {
+      textFormat: Text.PlainText
+      anchors.centerIn: parent
+      text: "◢"
+      rotation: grip.hdir < 0 ? (grip.vdir < 0 ? 180 : 90) : (grip.vdir < 0 ? 270 : 0)
+      color: Color.popups.text
+      opacity: gripArea.containsMouse || gripArea.pressed ? 0.6 : 0.16
+      font.pixelSize: Style.space(10)
+    }
+
+    MouseArea {
+      id: gripArea
+      anchors.fill: parent
+      hoverEnabled: true
+      cursorShape: grip.freeH && grip.freeV
+        ? (grip.hdir * grip.vdir > 0 ? Qt.SizeFDiagCursor : Qt.SizeBDiagCursor)
+        : (grip.freeH ? Qt.SizeHorCursor : Qt.SizeVerCursor)
+      property real startX: 0
+      property real startY: 0
+      // Scene coordinates: the grip itself moves while it is dragged.
+      onPressed: function (m) {
+        var p = mapToItem(null, m.x, m.y)
+        startX = p.x; startY = p.y
+        grip.host.beginDrag()
+      }
+      onPositionChanged: function (m) {
+        if (!pressed || !grip.host.dragging) return
+        var p = mapToItem(null, m.x, m.y)
+        grip.host.dragTo(grip.hdir, grip.vdir, p.x - startX, p.y - startY)
+      }
+      onReleased: grip.host.endDrag()
+      onCanceled: grip.host.endDrag()
+    }
+  }
+
+  PanelWindow {
+    id: gripLayer
+    screen: root.panelScreen
+    visible: root.ownsPanel && root.panelScreen !== null && root.geom.visible === true && (!root.fullscreenActive || dragging)
+    color: "transparent"
+    exclusionMode: ExclusionMode.Ignore
+    WlrLayershell.namespace: "omarchy-x-panel-grips"
+    WlrLayershell.layer: WlrLayer.Overlay
+    WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+    anchors { top: true; bottom: true; left: true; right: true }
+    mask: Region {
+      Region { item: gripTL }
+      Region { item: gripTR }
+      Region { item: gripBL }
+      Region { item: gripBR }
+    }
+
+    property bool dragging: false
+    property int liveX: 0
+    property int liveY: 0
+    property int liveW: 0
+    property int liveH: 0
+    property int x0: 0
+    property int y0: 0
+    property int w0: 0
+    property int h0: 0
+    readonly property string side: root.geom.side || "right"
+    readonly property string valign: root.geom.valign || "top"
+
+    function freeH(h) { return side === "center" || (h < 0 ? side !== "left" : side !== "right") }
+    function freeV(v) { return valign === "center" || (v < 0 ? valign !== "top" : valign !== "bottom") }
+    function syncFromGeom() {
+      liveX = root.geom.x || 0; liveY = root.geom.y || 0
+      liveW = root.geom.w || 0; liveH = root.geom.h || 0
+    }
+    function beginDrag() {
+      dragging = true
+      x0 = liveX; y0 = liveY; w0 = liveW; h0 = liveH
+    }
+    function dragTo(h, v, dx, dy) {
+      var nw = w0, nh = h0
+      if (freeH(h)) nw = Math.round(Math.max(280, Math.min(width - 40, w0 + h * dx * (side === "center" ? 2 : 1))))
+      if (freeV(v)) nh = Math.round(Math.max(200, Math.min(height - 16, h0 + v * dy * (valign === "center" ? 2 : 1))))
+      liveW = nw; liveH = nh
+      liveX = side === "left" ? x0 : side === "center" ? Math.round(x0 + (w0 - nw) / 2) : x0 + w0 - nw
+      liveY = valign === "top" ? y0 : valign === "center" ? Math.round(y0 + (h0 - nh) / 2) : y0 + h0 - nh
+      if (!liveTimer.running) liveTimer.start()
+    }
+    function pushLive() {
+      var w = "window = \"address:0x" + root.panelAddr + "\""
+      Hyprland.dispatch("hl.dsp.window.resize({ " + w + ", x = " + liveW + ", y = " + liveH + " })")
+      Hyprland.dispatch("hl.dsp.window.move({ " + w + ", x = " + (liveX + (root.geom.mx || 0)) + ", y = " + (liveY + (root.geom.my || 0)) + " })")
+    }
+    function endDrag() {
+      if (!dragging) return
+      liveTimer.stop()
+      pushLive()
+      dragging = false
+      root.curWidth = liveW; root.curHeight = liveH
+      Quickshell.execDetached([root.binPath, "set-size", String(liveW), String(liveH)])
+      settleTimer.restart()
+    }
+
+    // Throttle live resizes: Chromium re-lays out X on every one.
+    Timer { id: liveTimer; interval: 50; onTriggered: gripLayer.pushLive() }
+
+    Grip { id: gripTL; host: gripLayer; hdir: -1; vdir: -1 }
+    Grip { id: gripTR; host: gripLayer; hdir: 1; vdir: -1 }
+    Grip { id: gripBL; host: gripLayer; hdir: -1; vdir: 1 }
+    Grip { id: gripBR; host: gripLayer; hdir: 1; vdir: 1 }
   }
 
   // --- preferences panel (KeyboardPanel) ---------------------------------
@@ -240,6 +514,7 @@ BarWidget {
             width: parent.width
             spacing: Style.space(8)
             Text {
+              textFormat: Text.PlainText
               text: "𝕏"
               color: Color.accent
               font.family: popup.bar ? popup.bar.fontFamily : Style.font.family
@@ -247,6 +522,7 @@ BarWidget {
               anchors.verticalCenter: parent.verticalCenter
             }
             Text {
+              textFormat: Text.PlainText
               text: tr("title")
               color: popup.fg
               font.family: popup.bar ? popup.bar.fontFamily : Style.font.family
@@ -270,6 +546,7 @@ BarWidget {
             width: parent.width
             spacing: Style.space(8)
             Text {
+              textFormat: Text.PlainText
               width: parent.width
               text: tr("side") + ": " + tr(root.curSide) + "    " + tr("vertical") + ": " + tr(root.curValign)
               color: popup.fg
@@ -296,8 +573,10 @@ BarWidget {
             width: parent.width
             spacing: Style.space(8)
             Text {
+              textFormat: Text.PlainText
               width: parent.width
               text: tr("width") + ": " + root.curWidth + "    " + tr("height") + ": " + root.curHeight
+                + (root.curMonitor !== "" ? "    (" + root.curMonitor + ")" : "")
               color: popup.fg
               opacity: 0.7
               font.family: popup.bar ? popup.bar.fontFamily : Style.font.family
@@ -320,6 +599,74 @@ BarWidget {
               Button { iconText: "▅"; text: "75%"; bordered: true; selected: root.curHeight === "75%"; onClicked: function () { setPref("height", '"75%"'); root.curHeight = "75%" } }
               Button { iconText: "█"; text: "100%"; bordered: true; selected: root.curHeight === "100%"; onClicked: function () { setPref("height", '"100%"'); root.curHeight = "100%" } }
             }
+            Text {
+              textFormat: Text.PlainText
+              width: parent.width
+              text: tr("dragHint")
+              color: popup.fg
+              opacity: 0.55
+              wrapMode: Text.WordWrap
+              font.family: popup.bar ? popup.bar.fontFamily : Style.font.family
+              font.pixelSize: Style.font.caption
+            }
+          }
+
+          PanelSeparator { foreground: popup.fg }
+
+          // Seccion Auto-refresco: reload X on show after N minutes hidden
+          // (long-lived X tabs degrade over time). 0 = off.
+          Column {
+            width: parent.width
+            spacing: Style.space(8)
+            Text {
+              textFormat: Text.PlainText
+              width: parent.width
+              text: tr("autoRefresh") + ": " + (root.curRefresh > 0 ? tr("afterHidden").replace("%1", refreshLabel(root.curRefresh)) : tr("off"))
+              color: popup.fg
+              opacity: 0.7
+              wrapMode: Text.WordWrap
+              font.family: popup.bar ? popup.bar.fontFamily : Style.font.family
+              font.pixelSize: Style.font.caption
+            }
+            Flow {
+              width: parent.width
+              spacing: Style.space(4)
+              Repeater {
+                model: [0, 30, 60, 180]
+                Button {
+                  required property int modelData
+                  text: modelData > 0 ? refreshLabel(modelData) : tr("off")
+                  bordered: true
+                  selected: root.curRefresh === modelData
+                  onClicked: function () { setPref("refresh", modelData); root.curRefresh = modelData }
+                }
+              }
+              Button {
+                iconText: "⟳"
+                text: tr("reloadNow")
+                bordered: true
+                onClicked: function () { Quickshell.execDetached([root.binPath, "reload"]) }
+              }
+            }
+          }
+
+          PanelSeparator { foreground: popup.fg }
+
+          Toggle {
+            width: parent.width
+            label: tr("watchdog")
+            description: tr("watchdogDesc")
+            checked: root.curWatchdog
+            foreground: popup.fg
+            onClicked: function () { root.curWatchdog = !root.curWatchdog; setPref("watchdog", root.curWatchdog) }
+          }
+          Toggle {
+            width: parent.width
+            label: tr("autohide")
+            description: tr("autohideDesc")
+            checked: root.curAutohide
+            foreground: popup.fg
+            onClicked: function () { root.curAutohide = !root.curAutohide; setPref("autohide", root.curAutohide) }
           }
 
           PanelSeparator { foreground: popup.fg }
@@ -344,6 +691,7 @@ BarWidget {
             height: marq.implicitHeight
             clip: true
             Text {
+              textFormat: Text.PlainText
               id: marq
               text: "← " + tr("left") + " → " + tr("right") + " ↑ " + tr("top") + " ↓ " + tr("bottom") + "  ·  | " + tr("center") + " − " + tr("middle") + "  ·  % " + tr("height") + "  ·  + " + tr("width")
               color: popup.fg
