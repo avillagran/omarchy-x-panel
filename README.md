@@ -1,6 +1,6 @@
 # X Panel
 
-Opera-GX style always-on **X (Twitter) side panel** for [Omarchy](https://github.com/Omarchy/omarchy) (Quickshell / Hyprland).
+Opera-GX style always-on **X (x.com, Twitter) side panel** for [Omarchy](https://github.com/Omarchy/omarchy) (Quickshell / Hyprland).
 
 The panel **is your existing X window** — it is never a second Chromium instance. If an X window is already open it is reused; otherwise one is launched with your native profile. It is pinned (visible on every workspace) and floating at a configurable position and size, toggled from the bar icon or `SUPER+SHIFT+X` without ever closing the window, so the session and scroll position are preserved.
 
