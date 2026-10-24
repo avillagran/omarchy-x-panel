@@ -13,11 +13,17 @@ The panel **is your existing X window** — it is never a second Chromium instan
 - One persistent, always-on X window (your real session, not a separate login).
 - Toggle show / hide from the bar icon or `SUPER+SHIFT+X` — hiding keeps the session alive.
 - Pinned + floating on all workspaces.
+- Raised unread bubble on the `𝕏` bar icon (`𝕏ⁿ`): reads X's native Chromium window-title count every 12 seconds and displays `99+` for larger totals.
 - Preferences panel (right-click the bar icon) anchored under the icon, with live apply:
   - **Side**: Left / Center / Right
   - **Vertical**: Top / Middle / Bottom
   - **Width**: 320 / 420 / 520 / 620 / 1080 px
   - **Height**: 25% / 50% / 75% / 100% of the safe area
+  - **Auto-refresh**: Off / 30 min / 1 h / 3 h — reloads X when you show the panel after it has been hidden that long (long-lived X tabs slow down or crash over time), plus a **Reload now** button
+  - **Reload if X breaks** (on by default): if the window title shows the page failed to load (a bare URL or a stuck `X` splash instead of `… / X`) for three checks a minute apart, X is reloaded the next time you show or focus the panel. Never while you are using it, and at most once every 10 minutes.
+  - **Hide on focus loss** (off by default): hides the panel when another window takes focus. With Hyprland's focus-follows-mouse, moving the pointer onto another window counts.
+- Resize grips on the panel's free corners: drag them to resize, and the size is remembered per monitor (by EDID description, or connector name for a laptop panel).
+- Multi-monitor aware: the panel opens on the focused monitor, below *that* monitor's bar, with that monitor's size.
 - Multi-language UI — 19 languages (en, es, pt, fr, de, it, nl, pl, ru, ja, ko, zh, ar, tr, sv, da, no, fi, cs), auto-detected from the OS locale (`localectl`).
 - UI matching the Omarchy Control Panel style (header, sections, separators).
 
@@ -54,7 +60,7 @@ removes both and restores Omarchy's default bind.
 
 - Identity is tracked as `address|pid` in `$XDG_RUNTIME_DIR/x-panel.state`.
 - Layout is computed against the **safe area** (the monitor minus the Quickshell bar strip), so the panel never covers the bar.
-- Preferences are persisted at `$XDG_RUNTIME_DIR/omarchy-x-panel.prefs.json` (outside the plugin directory, so writing them never triggers a plugin reload) and applied live via the bundled helper script. All state writes use exclusive `mktemp` + atomic `mv`, and every external read is opened once with `O_NOFOLLOW | O_NONBLOCK`, verified via `fstat`, and capped at 256 KiB.
+- Preferences are persisted at `${XDG_CONFIG_HOME:-~/.config}/omarchy-x-panel/prefs.json` (survives reboots; outside the plugin directory, so writing them never triggers a plugin reload; a pre-1.1 file in `$XDG_RUNTIME_DIR` is migrated automatically) and applied live via the bundled helper script. All state writes use exclusive `mktemp` + atomic `mv`, and every external read is opened once with `O_NOFOLLOW | O_NONBLOCK`, verified via `fstat`, and capped at 256 KiB.
 - Launching uses the same `.desktop` entry as `SUPER+SPACE` → Apps → X (`uwsm-app -- X.desktop`), so a cold start opens the real X webapp — never a plain browser window.
 
 ## Uninstall
