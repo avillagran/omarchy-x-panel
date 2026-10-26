@@ -15,6 +15,7 @@ import Quickshell.Wayland
 import QtQuick.Controls
 import qs.Ui
 import qs.Commons
+import qs.Commons as Commons
 
 BarWidget {
   id: root
@@ -314,7 +315,7 @@ BarWidget {
         id: unreadText
         anchors.centerIn: parent
         text: root.unreadLabel
-        color: Color.background
+        color: Commons.Color.background
         font.family: button.fontFamily
         font.pixelSize: Math.max(7, parent.height * 0.64)
         font.bold: true
@@ -351,7 +352,7 @@ BarWidget {
       anchors.centerIn: parent
       text: "◢"
       rotation: grip.hdir < 0 ? (grip.vdir < 0 ? 180 : 90) : (grip.vdir < 0 ? 270 : 0)
-      color: Color.popups.text
+      color: Commons.Color.popups.text
       opacity: gripArea.containsMouse || gripArea.pressed ? 0.6 : 0.16
       font.pixelSize: Style.space(10)
     }
@@ -516,7 +517,7 @@ BarWidget {
             Text {
               textFormat: Text.PlainText
               text: "𝕏"
-              color: Color.accent
+              color: Commons.Color.accent
               font.family: popup.bar ? popup.bar.fontFamily : Style.font.family
               font.pixelSize: Style.font.title
               anchors.verticalCenter: parent.verticalCenter
