@@ -45,7 +45,7 @@ BarWidget {
     return null
   }
   property int unreadCount: 0
-  readonly property string unreadLabel: unreadCount > 99 ? "99+" : String(unreadCount)
+  readonly property string unreadLabel: String(unreadCount)
 
   function refresh() {
     if (geomProc.running) root.geomPending = true
@@ -289,36 +289,49 @@ BarWidget {
     anchors.fill: parent
     bar: root.bar
     text: "𝕏"
+    labelVisible: false
+    fixedWidth: Math.ceil(buttonContent.implicitWidth + button.scaledHorizontalMargin * 2)
+    fixedHeight: button.vertical ? Math.max(button.barSize, buttonContent.implicitHeight + button.scaledVerticalPadding * 2) : -1
     tooltipText: "Toggle X side panel (SUPER+SHIFT+X) · right-click for preferences"
     onPressed: function (b) {
       if (b === Qt.LeftButton) root.toggle()
       else if (b === Qt.RightButton) popup.togglePanel()
     }
 
-    // Raised count bubble: visually reads as Xⁿ while retaining the normal
-    // widget hit target underneath.
-    Rectangle {
-      visible: root.unreadCount > 0
-      z: 2
-      anchors.top: parent.top
-      anchors.right: parent.right
-      anchors.topMargin: 1
-      anchors.rightMargin: 1
-      width: Math.max(height, unreadText.implicitWidth + 6)
-      height: Math.max(12, Style.spaceReal(12))
-      radius: height / 2
-      color: button.activeColor
+    // El ancho del botón incluye el badge completo, sin superponerlo a la X.
+    Row {
+      id: buttonContent
+      anchors.centerIn: parent
+      spacing: Style.spaceReal(4)
 
       Text {
         textFormat: Text.PlainText
-        id: unreadText
-        anchors.centerIn: parent
-        text: root.unreadLabel
-        color: Color.background
+        anchors.verticalCenter: parent.verticalCenter
+        text: button.text
+        color: button.foreground
         font.family: button.fontFamily
-        font.pixelSize: Math.max(7, parent.height * 0.64)
-        font.bold: true
+        font.pixelSize: Math.round(button.fontSize * 1.15)
         renderType: Text.NativeRendering
+      }
+
+      Rectangle {
+        visible: root.unreadCount > 0
+        anchors.verticalCenter: parent.verticalCenter
+        // Mismas medidas y tipografía que T3StatusBadges; sin limitar el número.
+        width: Math.max(Style.space(14), unreadText.implicitWidth + Style.space(6))
+        height: Style.space(10)
+        radius: Style.space(2.5)
+        color: button.activeColor
+
+        Text {
+          id: unreadText
+          textFormat: Text.PlainText
+          anchors.centerIn: parent
+          text: root.unreadLabel
+          color: Color.popups.background
+          font.pixelSize: Style.space(8)
+          font.bold: true
+        }
       }
     }
   }

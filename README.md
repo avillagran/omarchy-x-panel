@@ -2,7 +2,7 @@
 
 Opera-GX style always-on **X (x.com, Twitter) side panel** for [Omarchy](https://github.com/Omarchy/omarchy) (Quickshell / Hyprland).
 
-The panel **is your existing X window** — it is never a second Chromium instance. If an X window is already open it is reused; otherwise one is launched with your native profile. It is pinned (visible on every workspace) and floating at a configurable position and size, toggled from the bar icon or `SUPER+SHIFT+X` without ever closing the window, so the session and scroll position are preserved.
+The panel uses your **system default browser** and its native profile. An existing X window in that browser is reused; otherwise a new window is opened. Chromium browsers use a dedicated native popup with client-only fullscreen: browser controls are hidden while X keeps its unread count in the window title. Links to other sites open in a normal browser window. The compositor keeps the panel floating at the configured size. The popup is opened automatically through a short-lived, loopback-only launcher; no extension or browser debugging port is used. Floorp uses its native Web App mode. X Panel reuses or creates the X app registration and automatically disables **Show Toolbar** through Floorp’s native settings control before launching it. No manual installation or navigation inside the app is required. The toolbar setting applies to Floorp Web App windows; regular browser windows keep their controls. The adapter requires Python GObject introspection and the desktop AT-SPI accessibility service. It does not restart Floorp or rewrite a running `prefs.js`. It is pinned (visible on every workspace) and floating at a configurable position and size, toggled from the bar icon or `SUPER+SHIFT+X` without ever closing the window, so the session and scroll position are preserved.
 
 ## Screenshot
 
@@ -13,7 +13,7 @@ The panel **is your existing X window** — it is never a second Chromium instan
 - One persistent, always-on X window (your real session, not a separate login).
 - Toggle show / hide from the bar icon or `SUPER+SHIFT+X` — hiding keeps the session alive.
 - Pinned + floating on all workspaces.
-- Raised unread bubble on the `𝕏` bar icon (`𝕏ⁿ`): reads X's native Chromium window-title count every 12 seconds and displays `99+` for larger totals.
+- Rectangular unread badge to the right of `𝕏`: reads X's native window-title count every 12 seconds and expands to show the full number, including totals such as `100` or `1000`.
 - Preferences panel (right-click the bar icon) anchored under the icon, with live apply:
   - **Side**: Left / Center / Right
   - **Vertical**: Top / Middle / Bottom
@@ -61,7 +61,7 @@ removes both and restores Omarchy's default bind.
 - Identity is tracked as `address|pid` in `$XDG_RUNTIME_DIR/x-panel.state`.
 - Layout is computed against the **safe area** (the monitor minus the Quickshell bar strip), so the panel never covers the bar.
 - Preferences are persisted at `${XDG_CONFIG_HOME:-~/.config}/omarchy-x-panel/prefs.json` (survives reboots; outside the plugin directory, so writing them never triggers a plugin reload; a pre-1.1 file in `$XDG_RUNTIME_DIR` is migrated automatically) and applied live via the bundled helper script. All state writes use exclusive `mktemp` + atomic `mv`, and every external read is opened once with `O_NOFOLLOW | O_NONBLOCK`, verified via `fstat`, and capped at 256 KiB.
-- Launching uses the same `.desktop` entry as `SUPER+SPACE` → Apps → X (`uwsm-app -- X.desktop`), so a cold start opens the real X webapp — never a plain browser window.
+- The default browser is resolved through `xdg-settings` (with an HTTPS MIME fallback) and its desktop entry, preserving launch arguments and the native profile. Floorp launches the registered X app with its native `--start-ssb` command and app window class; Floorp builds without the experimental app-specific Linux window class are supported by tracking the newly launched window and its PID instead of adopting an arbitrary browser window. The panel bypasses `X.desktop` and the stock webapp launcher, which substitutes Chromium for unsupported browsers. Changing the default browser leaves the old window intact and opens or reuses X in the newly selected browser. There is no silent Chromium fallback.
 
 ## Uninstall
 

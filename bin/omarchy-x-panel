@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 # omarchy-x-panel — Opera-GX style always-on X (Twitter) side panel for Omarchy.
 #
-# The panel IS your existing X (Twitter) window — never a second Chromium
-# instance (that would be the "enredo" of two separate logins). If an X window is
-# already open it is reused; otherwise one is launched with your native profile.
+# The panel uses the system default browser and its native profile. An existing
+# X window in that browser is reused; otherwise a dedicated window is opened.
 #   * pinned (visible on every workspace) and floating at a configurable position/size
 #   * toggled from the bar icon or SUPER+SHIFT+X: show / hide WITHOUT closing,
 #     so the session and scroll position are preserved.
@@ -16,12 +15,10 @@
 
 set -uo pipefail
 
-X_URL="https://x.com/"
 # Portable: derive the plugin dir from this script's own location (bin/ -> plugin root),
 # so it works after `omarchy plugin add` on any machine, not just this one.
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 PLUGIN_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-PROFILE="${CHROMIUM_PROFILE:-$HOME/.config/chromium}"
 RUNDIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 # Prefs must outlive the session: $XDG_RUNTIME_DIR is a tmpfs wiped on every
 # logout/reboot, which silently reset size and position. They live outside the
@@ -79,11 +76,13 @@ hypr_json() {                      # run a hyprctl -j query, read it safely
 }
 
 SPECIAL="special:sidepanelX"
-# Omarchy webapp window classes are <browser>-<host><path>-<profile>, so both
-# the browser prefix and the profile suffix vary with the user's setup: Brave
-# gives brave-x.com__-Default, a secondary profile gives ...-Profile_2. Match
-# on a regex rather than one hardcoded string.
-X_CLASS="^(chrome|chromium|brave)-x\\.com__.*"
+# Resolve the actual system default, including Mozilla browsers such as Floorp.
+# Failure must never silently launch a different browser.
+BROWSER_INFO=$(python3 "$SCRIPT_DIR/panel-browser.py") || exit 1
+X_CLASS=$(printf '%s' "$BROWSER_INFO" | jq -r '.class')
+X_TITLE=$(printf '%s' "$BROWSER_INFO" | jq -r '.title')
+X_DISCOVER=$(printf '%s' "$BROWSER_INFO" | jq -r '.discover')
+X_CLIENT_FULLSCREEN=$(printf '%s' "$BROWSER_INFO" | jq -r '.clientFullscreen // false')
 BAR_NS="omarchy-bar"
 GAP=8
 
@@ -141,9 +140,13 @@ write_state() {
 pref() { read_prefs | jq -r --arg k "$1" '.[$k]'; }
 
 # ---- hyprland helpers -----------------------------------------------------
+x_clients() {
+  hypr_json hyprctl clients -j 2>/dev/null | jq --arg c "$X_CLASS" --arg t "$X_TITLE" \
+    '[.[] | select(((.class // "") | test($c)) and ((.title // "") | test($t)))]'
+}
 find_x() {
-  hypr_json hyprctl clients -j 2>/dev/null | jq -r --arg c "$X_CLASS" \
-    '.[] | select((.class // "") | test($c)) | "\(.address)|\(.pid)"' | head -n1 || true
+  [ "$X_DISCOVER" = true ] || return 0
+  x_clients | jq -r '.[] | "\(.address)|\(.pid)"' | head -n1 || true
 }
 addr_alive() {
   local a="$1"; [ -z "$a" ] && return 1
@@ -154,12 +157,21 @@ addr_alive() {
 pid_alive() { local p="$1"; [ -n "$p" ] && kill -0 "$p" 2>/dev/null; }
 resolve() {
   local saved="$1" a p cur
+  # Normal Chrome windows from the old launcher also accept unrelated tabs.
+  # Reuse only a popup produced by our current launcher, leaving old tabs intact.
+  if [ "$X_CLIENT_FULLSCREEN" = true ] && [ "$saved" != "$(read_file_safe "$RUNDIR/x-panel.chromium-popup" | tr -d '[:space:]')" ]; then
+    saved=""
+  fi
   a="${saved%%|*}"; p="${saved##*|}"
-  if addr_alive "$a"; then echo "$a|$p"; return; fi
-  if pid_alive "$p"; then
+  # A browser change invalidates the old panel, but does not close it.
+  if hypr_json hyprctl clients -j 2>/dev/null | jq -e --arg a "$a" --arg p "$p" --arg c "$X_CLASS" \
+    '.[] | select(.address==$a and (.pid|tostring)==$p and ((.class // "") | test($c)))' >/dev/null; then
+    echo "$a|$p"; return
+  fi
+  if [ "$X_DISCOVER" = true ] && pid_alive "$p"; then
     # Chromium shares the browser pid across windows, so the pid lookup MUST
     # also match the X class — otherwise we adopt a non-X Chromium window.
-    cur=$(hypr_json hyprctl clients -j 2>/dev/null | jq -r --arg p "$p" --arg c "$X_CLASS" '.[] | select(.pid==($p|tonumber) and ((.class // "") | test($c))) | "\(.address)|\(.pid)"' | head -n1 || true)
+    cur=$(x_clients | jq -r --arg p "$p" '.[] | select((.pid|tostring)==$p) | "\(.address)|\(.pid)"' | head -n1 || true)
     [ -n "$cur" ] && { echo "$cur"; return; }
   fi
   cur=$(find_x); [ -n "$cur" ] && { echo "$cur"; return; }
@@ -169,13 +181,14 @@ is_pinned() {
   local a="$1"; hypr_json hyprctl clients -j 2>/dev/null | jq -r --arg a "$a" '.[] | select(.address==$a) | .pinned' | head -n1 || true
 }
 
-# Chromium puts X's unread-notification count at the start of the webapp title,
+# X puts its unread-notification count at the start of the webapp title,
 # e.g. "(3) Inicio / X". Reading the compositor title keeps this lightweight:
 # no second browser, API token, or browser-profile access is needed.
 unread_count() {
   local title
-  title=$(hypr_json hyprctl clients -j 2>/dev/null | jq -r --arg c "$X_CLASS" \
-    '.[] | select((.class // "") | test($c)) | .title // ""' | head -n1 || true)
+  local saved ap
+  saved=$(read_file_safe "$STATE" | tr -d '[:space:]'); ap=$(resolve "$saved")
+  title=$(window_field "${ap%%|*}" title)
   if [[ "$title" =~ ^\(([0-9][0-9,]*)\) ]]; then
     printf '%s\n' "${BASH_REMATCH[1]//,/}"
   else
@@ -213,6 +226,17 @@ ensure_float() {
   local a="$1" cur
   cur=$(is_floating "$a")
   if [ "$cur" != "true" ]; then hl_float "$a"; fi
+}
+
+# Keep a normal Chromium window chromeless without giving X a standalone
+# display mode (which makes X remove its unread count from the title).
+# Internal=0 keeps the compositor's normal floating panel geometry; client=2
+# hides Chromium's own tabs/toolbar. Never toggle the user's other windows.
+ensure_client_fullscreen() {
+  [ "$X_CLIENT_FULLSCREEN" = true ] || return 0
+  local a="$1"
+  [ "$(window_field "$a" fullscreenClient)" = 2 ] && return 0
+  hyprctl dispatch "hl.dsp.window.fullscreen_state({ internal = 0, client = 2, action = \"set\", window = \"address:$a\" })" >/dev/null 2>&1
 }
 
 # The focused monitor, not blindly the first one in hyprctl's list.
@@ -275,6 +299,24 @@ px_value() {
   fi
 }
 
+# Wayland clients may impose a minimum size and acknowledge resize later.
+# Position against the accepted size, not the requested preference.
+resize_and_measure() {
+  local a="$1" w="$2" h="$3" actual previous="" stable=0
+  hl_resize "$a" "$w" "$h"
+  for _ in {1..10}; do
+    sleep 0.05
+    actual=$(hypr_json hyprctl clients -j | jq -r --arg a "$a" \
+      '.[] | select(.address==$a) | .size | "\(.[0]) \(.[1])"')
+    if [[ "$actual" =~ ^[0-9]+\ [0-9]+$ ]]; then
+      if [ "$actual" = "$previous" ]; then stable=$((stable + 1)); else stable=0; fi
+      previous="$actual"
+      [ "$stable" -ge 2 ] && break
+    fi
+  done
+  printf '%s\n' "${previous:-$w $h}"
+}
+
 # Compute x|y in logical px. $5 = safe-area start-y, $6 = safe-area height, $7 = height.
 compute_xy() {
   local side="$1" valign="$2" mw="$3" w="$4" sy="$5" sh="$6" h="$7" x y
@@ -310,6 +352,9 @@ apply_layout() {
   # A free-dragged size saved on a bigger screen must still fit this one.
   [ "$w" -gt $(( mw - 40 )) ] && w=$(( mw - 40 ))
   [ "$h" -gt "$sh" ] && h=$sh
+  ensure_float "$a"
+  ensure_client_fullscreen "$a"
+  read -r w h <<< "$(resize_and_measure "$a" "$w" "$h")"
   # recompute y with real h
   case "$valign" in
     top)    y=$sy ;;
@@ -326,23 +371,21 @@ apply_layout() {
   [ "$y" -lt 0 ] && y=0
   # Back into absolute layout coordinates for the dispatch.
   x=$(( x + mx )); y=$(( y + my ))
-  hl_resize "$a" "$w" "$h"; hl_movepos "$a" "$x" "$y"
+  hl_movepos "$a" "$x" "$y"
 }
 
 launch_or_reuse() {
-  local ap; ap=$(find_x)
+  local ap before; ap=$(find_x)
   if [ -z "$ap" ]; then
-    # Launch EXACTLY like the Omarchy launcher (SUPER+SPACE -> Apps -> X): run the
-    # .desktop file via uwsm-app. Never wrap omarchy-launch-webapp in another
-    # `setsid uwsm-app --` — the double wrap eats the --app arg and opens a plain
-    # empty browser window instead of the webapp.
-    if [ -f "$HOME/.local/share/applications/X.desktop" ] || [ -f /usr/share/applications/X.desktop ]; then
-      ( uwsm-app -- X.desktop >/dev/null 2>&1 & )
-    else
-      ( omarchy-launch-webapp "$X_URL" >/dev/null 2>&1 & )
-    fi
+    python3 "$SCRIPT_DIR/panel-browser.py" prepare || return 1
+    before=$(hypr_json hyprctl clients -j | jq '[.[].address]')
+    # Use the resolved desktop command, preserving the native profile. The
+    # stock webapp launcher silently substitutes Chromium for Mozilla browsers.
+    ( python3 "$SCRIPT_DIR/panel-browser.py" launch >/dev/null 2>&1 & )
     for _ in $(seq 1 40); do
-      sleep 0.3; ap=$(find_x); [ -n "$ap" ] && break
+      sleep 0.3
+      ap=$(x_clients | jq -r --argjson before "$before" '.[] | select(.address as $a | $before | index($a) | not) | "\(.address)|\(.pid)"' | head -n1)
+      [ -n "$ap" ] && break
     done
   fi
   if [ -z "$ap" ]; then echo "failed to launch X window" >&2; rm -f "$STATE"; exit 1; fi
@@ -393,7 +436,7 @@ reload_if_broken() {
 # A loaded X page always titles itself "<page> / X" (optionally prefixed by an
 # unread count). Anything else for minutes on end — a bare host or URL from a
 # network error page, a stuck "X" splash — means the tab is broken.
-title_healthy() { [[ "$1" == *" / X" ]]; }
+title_healthy() { [[ "$1" =~ " / X"($|[[:space:]][—–-][[:space:]]) ]]; }
 window_field() {
   hypr_json hyprctl clients -j 2>/dev/null | jq -r --arg a "$1" --arg f "$2" '.[] | select(.address==$a) | .[$f] | tostring' | head -n1 || true
 }
@@ -432,6 +475,8 @@ show_window() {
   apply_layout "$ap"
   hl_focus "$a"
   reload_if_pending "$a" || maybe_refresh "$a" || reload_if_broken "$a"
+  # A healthy page that needs no reload is still a successful show.
+  return 0
 }
 # Reveal without stealing focus — used while the preferences panel is open so it
 # keeps focus and stays up while you preview changes.
@@ -494,7 +539,7 @@ hide_if_blurred() {
   [ -n "$a" ] && [ -n "$to" ] && [ "${a#0x}" != "$to" ] || return 0
   [ "$(state_of "$ap")" = "visible" ] || return 0
   cls=$(window_field "0x$to" class)
-  [[ "$cls" =~ $X_CLASS || "$cls" == *portal* ]] && return 0
+  [[ "$cls" == *portal* ]] && return 0
   hide_window "$ap"
 }
 
