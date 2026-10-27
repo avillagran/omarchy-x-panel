@@ -1,6 +1,7 @@
 // Sidepanel X — Opera-GX style always-on X (Twitter) side panel for Omarchy.
 // Left click: toggle the X window (show/hide without closing — session kept).
 // Right click: open the preferences popup (PopupWindow anchored under the icon).
+// Alt + left click: toggle low-memory mode (hiding closes X; the icon turns lime).
 // While the panel is shown, grips on its free corners resize it; the size is
 // saved per monitor.
 //
@@ -46,6 +47,7 @@ BarWidget {
   }
   property int unreadCount: 0
   readonly property string unreadLabel: String(unreadCount)
+  readonly property color lowmemColor: "#a3e635"
 
   function refresh() {
     if (geomProc.running) root.geomPending = true
@@ -61,15 +63,21 @@ BarWidget {
   }
   function refreshUnread() { unreadProc.running = true }
 
+  // Unread count plus the low-memory flag, so a mode change made from another
+  // monitor's bar (or the prefs file) also recolors this icon.
   Process {
     id: unreadProc
-    command: [root.binPath, "unread-count"]
+    command: [root.binPath, "bar-status"]
     running: false
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: {
-        var parsed = Number(text.trim())
-        root.unreadCount = isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 0
+        try {
+          var s = JSON.parse(text || "{}")
+          var parsed = Number(s.unread)
+          root.unreadCount = isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 0
+          root.curLowmem = s.lowmem === true
+        } catch (e) {}
       }
     }
   }
@@ -188,6 +196,11 @@ BarWidget {
   property int curRefresh: 60
   property bool curWatchdog: true
   property bool curAutohide: false
+  property bool curLowmem: false
+  property string curBrowser: "default"
+  // Installed browsers offered for the panel: [{id, name}], plus the default.
+  property var browsers: []
+  property string defaultBrowser: ""
   property string curMonitor: ""
 
   function applyPrefs(data) {
@@ -200,6 +213,8 @@ BarWidget {
       if (d.refresh !== undefined) root.curRefresh = d.refresh
       if (d.watchdog !== undefined) root.curWatchdog = d.watchdog
       if (d.autohide !== undefined) root.curAutohide = d.autohide
+      if (d.lowmem !== undefined) root.curLowmem = d.lowmem === true
+      if (d.browser) root.curBrowser = d.browser
       if (d.monitor !== undefined) root.curMonitor = d.monitor
     } catch (e) {}
   }
@@ -225,6 +240,34 @@ BarWidget {
       onStreamFinished: root.loadI18n(text)
     }
   }
+  Process {
+    id: browsersProc
+    running: false
+    command: [root.binPath, "list-browsers"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        try {
+          var d = JSON.parse(text || "{}")
+          root.browsers = d.browsers || []
+          root.defaultBrowser = d.default || ""
+        } catch (e) {}
+      }
+    }
+  }
+  function browserName(id) {
+    for (var i = 0; i < root.browsers.length; i++)
+      if (root.browsers[i].id === id) return root.browsers[i].name
+    return id.replace(/\.desktop$/, "")
+  }
+  // A browser or low-memory change first closes the current panel, which a
+  // post being written can refuse; re-read the saved prefs once that settles.
+  Timer {
+    id: prefsRecheck
+    interval: 3500
+    onTriggered: { prefsLoader.running = true; root.refreshUnread() }
+  }
+
   property bool bindOn: false
 
   // Keybind on/off state (reads `bind-status` from the helper).
@@ -266,6 +309,8 @@ BarWidget {
     Quickshell.execDetached([root.binPath, "set-pref", key, String(value)])
     settleTimer.restart()
   }
+  function toggleLowmem() { root.curLowmem = !root.curLowmem; setPref("lowmem", root.curLowmem); prefsRecheck.restart() }
+  function setBrowser(id) { root.curBrowser = id; setPref("browser", JSON.stringify(id)); prefsRecheck.restart() }
 
   // In-panel keyboard shortcut helpers: % cycles height, + cycles width.
   function cycleWidth() {
@@ -292,10 +337,21 @@ BarWidget {
     labelVisible: false
     fixedWidth: Math.ceil(buttonContent.implicitWidth + button.scaledHorizontalMargin * 2)
     fixedHeight: button.vertical ? Math.max(button.barSize, buttonContent.implicitHeight + button.scaledVerticalPadding * 2) : -1
-    tooltipText: "Toggle X side panel (SUPER+SHIFT+X) · right-click for preferences"
+    tooltipText: "Toggle X side panel (SUPER+SHIFT+X) · right-click for preferences · Alt+click: low-memory mode"
+      + (root.curLowmem ? " (on)" : "")
     onPressed: function (b) {
       if (b === Qt.LeftButton) root.toggle()
       else if (b === Qt.RightButton) popup.togglePanel()
+    }
+
+    // WidgetButton's pressed signal carries no modifiers, so Alt+click is
+    // caught here first; any other press falls through to the button.
+    MouseArea {
+      anchors.fill: parent
+      z: 1
+      acceptedButtons: Qt.LeftButton
+      onPressed: function (m) { m.accepted = (m.modifiers & Qt.AltModifier) !== 0 }
+      onClicked: root.toggleLowmem()
     }
 
     // El ancho del botón incluye el badge completo, sin superponerlo a la X.
@@ -308,7 +364,7 @@ BarWidget {
         textFormat: Text.PlainText
         anchors.verticalCenter: parent.verticalCenter
         text: button.text
-        color: button.foreground
+        color: root.curLowmem ? root.lowmemColor : button.foreground
         font.family: button.fontFamily
         font.pixelSize: Math.round(button.fontSize * 1.15)
         renderType: Text.NativeRendering
@@ -485,7 +541,7 @@ BarWidget {
     property bool popupOpen: false
     readonly property color fg: bar ? bar.foreground : "#fff"
 
-    function openPanel()   { prefsLoader.running = true; i18nLoader.running = true; localeProc.running = true; bindStatusProc.running = true; popup.popupOpen = true; Quickshell.execDetached([root.binPath, "prefs-open"]) }
+    function openPanel()   { browsersProc.running = true; prefsLoader.running = true; i18nLoader.running = true; localeProc.running = true; bindStatusProc.running = true; popup.popupOpen = true; Quickshell.execDetached([root.binPath, "prefs-open"]) }
     function closePanel()  { popup.popupOpen = false; Quickshell.execDetached([root.binPath, "prefs-close"]) }
     function togglePanel() { if (popup.popupOpen) popup.closePanel(); else popup.openPanel() }
 
@@ -681,6 +737,14 @@ BarWidget {
             foreground: popup.fg
             onClicked: function () { root.curAutohide = !root.curAutohide; setPref("autohide", root.curAutohide) }
           }
+          Toggle {
+            width: parent.width
+            label: tr("lowmem")
+            description: tr("lowmemDesc")
+            checked: root.curLowmem
+            foreground: popup.fg
+            onClicked: function () { root.toggleLowmem() }
+          }
 
           PanelSeparator { foreground: popup.fg }
 
@@ -718,6 +782,46 @@ BarWidget {
                 NumberAnimation { to: -(marq.implicitWidth - marqueeBox.width); duration: Math.max(2500, (marq.implicitWidth - marqueeBox.width) * 28); easing.type: Easing.InOutSine }
                 PauseAnimation { duration: 1600 }
                 NumberAnimation { to: 0; duration: 900; easing.type: Easing.InOutSine }
+              }
+            }
+          }
+
+          PanelSeparator { foreground: popup.fg }
+
+          // Browser used for the panel: the system default or any installed one.
+          Column {
+            width: parent.width
+            spacing: Style.space(8)
+            Text {
+              textFormat: Text.PlainText
+              width: parent.width
+              text: tr("panelBrowser") + ": " + (root.curBrowser === "default"
+                ? tr("systemDefault") + (root.defaultBrowser !== "" ? " (" + root.browserName(root.defaultBrowser) + ")" : "")
+                : root.browserName(root.curBrowser))
+              color: popup.fg
+              opacity: 0.7
+              wrapMode: Text.WordWrap
+              font.family: popup.bar ? popup.bar.fontFamily : Style.font.family
+              font.pixelSize: Style.font.caption
+            }
+            Flow {
+              width: parent.width
+              spacing: Style.space(4)
+              Button {
+                text: tr("systemDefault")
+                bordered: true
+                selected: root.curBrowser === "default"
+                onClicked: function () { root.setBrowser("default") }
+              }
+              Repeater {
+                model: root.browsers
+                Button {
+                  required property var modelData
+                  text: modelData.name
+                  bordered: true
+                  selected: root.curBrowser === modelData.id
+                  onClicked: function () { root.setBrowser(modelData.id) }
+                }
               }
             }
           }

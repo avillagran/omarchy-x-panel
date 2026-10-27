@@ -146,6 +146,77 @@ ensure_client_fullscreen '0x123'
         setup.register(str(profile), "{new-native-app}")
         self.assertEqual(json.loads(store.read_text()), data)
 
+    def install(self, desktop, executable, name, categories="Network;WebBrowser;", extra=""):
+        (self.root / "applications" / desktop).write_text(
+            f"[Desktop Entry]\nName={name}\nType=Application\nExec={executable}\n"
+            f"Categories={categories}\n{extra}")
+
+    def test_lowmem_chromium_uses_app_mode_with_its_own_class(self):
+        self.install("google-chrome.desktop", "/usr/bin/google-chrome-stable --profile-directory=Work %U",
+                     "Google Chrome")
+        info = module.browser("google-chrome.desktop", lowmem=True)
+        self.assertEqual(info["command"][-1], "--app=https://x.com/home")
+        self.assertEqual(info["ruleClass"], r"^(chrome|chromium)-x\.com__home-.*$")
+        self.assertIn("--profile-directory=Work", info["command"])
+        self.assertFalse(info["clientFullscreen"])
+        self.assertNotIn("popup", info)
+        self.assertTrue(info["chromium"])
+        self.assert_matches(info, "chrome-x.com__home-Profile_1", "Home / X", True)
+        # Not a user's own x.com app either.
+        self.assert_matches(info, "chrome-x.com__-Default", "Home / X", False)
+        # Never a normal browser window, nor another site's app.
+        self.assert_matches(info, "google-chrome", "(8) Home / X - Google Chrome", False)
+        self.assert_matches(info, "chrome-mail.google.com__-Default", "Home / X", False)
+
+    def test_chosen_firefox_gets_its_own_profile_and_class(self):
+        self.install("firefox.desktop", "/usr/lib/firefox/firefox -P Personal %u", "Firefox")
+        profile = str(self.root / "omarchy-x-panel/firefox")
+        for lowmem in (False, True):
+            info = module.browser("firefox.desktop", lowmem=lowmem)
+            # The user's profile selection is replaced by the panel's own.
+            self.assertEqual(info["command"], ["/usr/lib/firefox/firefox", "--profile", profile,
+                             "--name", "omarchy-x-panel", "--new-window", "https://x.com/home"])
+            self.assertEqual(info["ruleClass"], "^omarchy-x-panel$")
+            self.assertFalse(info["clientFullscreen"])
+            self.assertTrue(info["discover"])
+            self.assert_matches(info, "omarchy-x-panel", "Mozilla Firefox", True)
+            self.assert_matches(info, "firefox", "Home / X — Mozilla Firefox", False)
+
+    def test_firefox_profile_is_private_and_chromeless(self):
+        profile = self.root / "omarchy-x-panel/firefox"
+        module.prepare_firefox(profile)
+        module.prepare_firefox(profile)  # idempotent
+        self.assertEqual(os.stat(profile).st_mode & 0o777, 0o700)
+        prefs = (profile / "user.js").read_text()
+        self.assertIn('user_pref("toolkit.legacyUserProfileCustomizations.stylesheets", true);', prefs)
+        self.assertIn('user_pref("browser.startup.page", 0);', prefs)
+        self.assertIn("#navigator-toolbox", (profile / "chrome/userChrome.css").read_text())
+
+    def test_firefox_profile_refuses_a_symlinked_directory(self):
+        (self.root / "elsewhere").mkdir()
+        (self.root / "omarchy-x-panel").mkdir()
+        (self.root / "omarchy-x-panel/firefox").symlink_to(self.root / "elsewhere")
+        with self.assertRaises(ValueError):
+            module.prepare_firefox(self.root / "omarchy-x-panel/firefox")
+        self.assertEqual(list((self.root / "elsewhere").iterdir()), [])
+
+    def test_only_visible_installed_browsers_can_be_chosen(self):
+        self.install("firefox.desktop", "/usr/lib/firefox/firefox %u", "Firefox")
+        self.install("chatgpt.desktop", "chatgpt %U", "ChatGPT", "Utility;")
+        self.install("com.google.Chrome.desktop", "/usr/bin/google-chrome-stable %U", "Chrome",
+                     extra="NoDisplay=true\n")
+        self.assertEqual(module.list_browsers(), [{"id": "firefox.desktop", "name": "Firefox"}])
+        for choice in ("chatgpt.desktop", "com.google.Chrome.desktop", "../firefox.desktop", "missing.desktop"):
+            with self.assertRaises(ValueError):
+                module.browser(choice)
+
+    def test_default_choice_follows_the_system_browser(self):
+        self.install("firefox.desktop", "/usr/lib/firefox/firefox %u", "Firefox")
+        self.assertEqual(module.parse_args(["--browser", "default", "--lowmem", "launch"]),
+                         (None, True, ["launch"]))
+        with patch.object(module, "capture", return_value="firefox.desktop\n"):
+            self.assertEqual(module.browser(None)["desktop"], "firefox.desktop")
+
     def assert_matches(self, info, cls, title, expected):
         result = subprocess.run(["jq", "-ne", "--arg", "c", info["class"],
                                  "--arg", "t", info["title"], "--arg", "cls", cls,

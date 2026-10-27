@@ -27,7 +27,13 @@
     "watchdog": "Reload if X breaks",
     "watchdogDesc": "Reloads the page when its title shows it failed to load, unless you are using it.",
     "autohide": "Hide on focus loss",
-    "autohideDesc": "Hides the panel when you switch to another window."
+    "autohideDesc": "Hides the panel when you switch to another window.",
+    "lowmem": "Low-memory mode",
+    "lowmemDesc": "Hiding closes X instead of keeping it open; showing opens a fresh window. Alt+click the bar icon to toggle it (the icon turns lime).",
+    "draftTitle": "X Panel: unsent post",
+    "draftBody": "You have a post in progress. Save it as a draft, or discard it, before closing the panel.",
+    "panelBrowser": "Panel browser",
+    "systemDefault": "System default"
   },
   "es": {
     "title": "X Panel — Preferencias",
@@ -57,7 +63,13 @@
     "watchdog": "Recargar si X falla",
     "watchdogDesc": "Recarga la página si su título indica que no cargó, salvo mientras la usas.",
     "autohide": "Ocultar al perder el foco",
-    "autohideDesc": "Oculta el panel al cambiar a otra ventana."
+    "autohideDesc": "Oculta el panel al cambiar a otra ventana.",
+    "lowmem": "Modo de poca memoria",
+    "lowmemDesc": "Ocultar cierra X en lugar de mantenerlo abierto; mostrar abre una ventana nueva. Alt+clic en el icono de la barra lo activa o desactiva (el icono se vuelve verde lima).",
+    "draftTitle": "X Panel: mensaje sin enviar",
+    "draftBody": "Tienes un mensaje escrito. Guárdalo como borrador, o descártalo, antes de cerrar el panel.",
+    "panelBrowser": "Navegador del panel",
+    "systemDefault": "Predeterminado del sistema"
   },
   "pt": {
     "title": "X Panel — Preferências",
@@ -87,7 +99,13 @@
     "watchdog": "Recarregar se o X falhar",
     "watchdogDesc": "Recarrega a página quando o título indica que ela não carregou, exceto enquanto você a usa.",
     "autohide": "Ocultar ao perder o foco",
-    "autohideDesc": "Oculta o painel ao mudar para outra janela."
+    "autohideDesc": "Oculta o painel ao mudar para outra janela.",
+    "lowmem": "Modo de pouca memória",
+    "lowmemDesc": "Ocultar fecha o X em vez de mantê-lo aberto; mostrar abre uma nova janela. Alt+clique no ícone da barra para alternar (o ícone fica verde-lima).",
+    "draftTitle": "X Panel: post não enviado",
+    "draftBody": "Você tem um post em andamento. Salve-o como rascunho, ou descarte-o, antes de fechar o painel.",
+    "panelBrowser": "Navegador do painel",
+    "systemDefault": "Padrão do sistema"
   },
   "fr": {
     "title": "X Panel — Préférences",
@@ -117,7 +135,13 @@
     "watchdog": "Recharger si X plante",
     "watchdogDesc": "Recharge la page quand son titre indique un échec de chargement, sauf pendant que vous l'utilisez.",
     "autohide": "Masquer à la perte du focus",
-    "autohideDesc": "Masque le panneau quand vous passez à une autre fenêtre."
+    "autohideDesc": "Masque le panneau quand vous passez à une autre fenêtre.",
+    "lowmem": "Mode mémoire réduite",
+    "lowmemDesc": "Masquer ferme X au lieu de le garder ouvert ; afficher ouvre une nouvelle fenêtre. Alt+clic sur l’icône de la barre pour l’activer (l’icône devient vert citron).",
+    "draftTitle": "X Panel : post non envoyé",
+    "draftBody": "Vous avez un post en cours. Enregistrez-le comme brouillon, ou abandonnez-le, avant de fermer le panneau.",
+    "panelBrowser": "Navigateur du panneau",
+    "systemDefault": "Par défaut du système"
   },
   "de": {
     "title": "X Panel — Einstellungen",
@@ -147,7 +171,13 @@
     "watchdog": "Neu laden, wenn X hängt",
     "watchdogDesc": "Lädt die Seite neu, wenn ihr Titel einen Ladefehler zeigt – außer während Sie sie benutzen.",
     "autohide": "Bei Fokusverlust ausblenden",
-    "autohideDesc": "Blendet das Panel aus, wenn Sie zu einem anderen Fenster wechseln."
+    "autohideDesc": "Blendet das Panel aus, wenn Sie zu einem anderen Fenster wechseln.",
+    "lowmem": "Speichersparmodus",
+    "lowmemDesc": "Ausblenden schließt X, statt es offen zu halten; Einblenden öffnet ein neues Fenster. Alt+Klick auf das Leistensymbol schaltet ihn um (das Symbol wird limettengrün).",
+    "draftTitle": "X Panel: Beitrag nicht gesendet",
+    "draftBody": "Du schreibst gerade einen Beitrag. Speichere ihn als Entwurf oder verwirf ihn, bevor du das Panel schließt.",
+    "panelBrowser": "Browser des Panels",
+    "systemDefault": "Systemstandard"
   },
   "it": {
     "title": "X Panel — Preferenze",
@@ -177,7 +207,13 @@
     "watchdog": "Ricarica se X si blocca",
     "watchdogDesc": "Ricarica la pagina quando il titolo indica che non si è caricata, tranne mentre la usi.",
     "autohide": "Nascondi alla perdita del focus",
-    "autohideDesc": "Nasconde il pannello quando passi a un'altra finestra."
+    "autohideDesc": "Nasconde il pannello quando passi a un'altra finestra.",
+    "lowmem": "Modalità poca memoria",
+    "lowmemDesc": "Nascondere chiude X invece di tenerlo aperto; mostrare apre una nuova finestra. Alt+clic sull’icona della barra per attivarla (l’icona diventa verde lime).",
+    "draftTitle": "X Panel: post non inviato",
+    "draftBody": "Hai un post in corso. Salvalo come bozza, o scartalo, prima di chiudere il pannello.",
+    "panelBrowser": "Browser del pannello",
+    "systemDefault": "Predefinito di sistema"
   },
   "nl": {
     "title": "X Panel — Voorkeuren",
@@ -207,7 +243,13 @@
     "watchdog": "Herladen als X vastloopt",
     "watchdogDesc": "Herlaadt de pagina als de titel aangeeft dat laden mislukte, behalve terwijl je hem gebruikt.",
     "autohide": "Verbergen bij focusverlies",
-    "autohideDesc": "Verbergt het paneel als je naar een ander venster gaat."
+    "autohideDesc": "Verbergt het paneel als je naar een ander venster gaat.",
+    "lowmem": "Geheugenbesparende modus",
+    "lowmemDesc": "Verbergen sluit X in plaats van het open te houden; tonen opent een nieuw venster. Alt+klik op het balkpictogram om te schakelen (het pictogram wordt limoengroen).",
+    "draftTitle": "X Panel: post niet verzonden",
+    "draftBody": "Je bent een post aan het schrijven. Sla hem op als concept, of verwijder hem, voordat je het paneel sluit.",
+    "panelBrowser": "Browser van het paneel",
+    "systemDefault": "Systeemstandaard"
   },
   "pl": {
     "title": "X Panel — Preferencje",
@@ -237,7 +279,13 @@
     "watchdog": "Przeładuj, gdy X się zawiesi",
     "watchdogDesc": "Przeładowuje stronę, gdy jej tytuł wskazuje błąd ładowania, chyba że z niej korzystasz.",
     "autohide": "Ukryj po utracie fokusu",
-    "autohideDesc": "Ukrywa panel po przełączeniu na inne okno."
+    "autohideDesc": "Ukrywa panel po przełączeniu na inne okno.",
+    "lowmem": "Tryb oszczędzania pamięci",
+    "lowmemDesc": "Ukrycie zamyka X zamiast zostawiać go otwartego; pokazanie otwiera nowe okno. Alt+kliknięcie ikony na pasku przełącza tryb (ikona robi się limonkowa).",
+    "draftTitle": "X Panel: niewysłany post",
+    "draftBody": "Masz rozpoczęty post. Zapisz go jako wersję roboczą lub odrzuć przed zamknięciem panelu.",
+    "panelBrowser": "Przeglądarka panelu",
+    "systemDefault": "Domyślna systemowa"
   },
   "ru": {
     "title": "X Panel — Настройки",
@@ -267,7 +315,13 @@
     "watchdog": "Перезагружать при сбое X",
     "watchdogDesc": "Перезагружает страницу, если её заголовок показывает ошибку загрузки, но не пока вы ею пользуетесь.",
     "autohide": "Скрывать при потере фокуса",
-    "autohideDesc": "Скрывает панель при переходе в другое окно."
+    "autohideDesc": "Скрывает панель при переходе в другое окно.",
+    "lowmem": "Режим экономии памяти",
+    "lowmemDesc": "Скрытие закрывает X вместо того, чтобы держать его открытым; показ открывает новое окно. Alt+щелчок по значку на панели переключает режим (значок становится лаймовым).",
+    "draftTitle": "X Panel: пост не отправлен",
+    "draftBody": "У вас есть недописанный пост. Сохраните его как черновик или удалите, прежде чем закрывать панель.",
+    "panelBrowser": "Браузер панели",
+    "systemDefault": "Системный по умолчанию"
   },
   "ja": {
     "title": "X Panel — 設定",
@@ -297,7 +351,13 @@
     "watchdog": "X が止まったら再読み込み",
     "watchdogDesc": "タイトルが読み込み失敗を示したらページを再読み込みします（使用中は除く）。",
     "autohide": "フォーカスを失ったら隠す",
-    "autohideDesc": "別のウィンドウに切り替えるとパネルを隠します。"
+    "autohideDesc": "別のウィンドウに切り替えるとパネルを隠します。",
+    "lowmem": "省メモリモード",
+    "lowmemDesc": "非表示にすると X を開いたままにせず閉じ、表示すると新しいウィンドウを開きます。バーのアイコンを Alt+クリックで切り替えます（アイコンがライムグリーンになります）。",
+    "draftTitle": "X Panel: 未送信のポスト",
+    "draftBody": "作成中のポストがあります。パネルを閉じる前に下書き保存するか破棄してください。",
+    "panelBrowser": "パネルのブラウザ",
+    "systemDefault": "システムの既定"
   },
   "ko": {
     "title": "X Panel — 환경설정",
@@ -327,7 +387,13 @@
     "watchdog": "X 오류 시 새로고침",
     "watchdogDesc": "제목이 로드 실패를 나타내면 페이지를 새로고침합니다(사용 중일 때는 제외).",
     "autohide": "포커스를 잃으면 숨기기",
-    "autohideDesc": "다른 창으로 전환하면 패널을 숨깁니다."
+    "autohideDesc": "다른 창으로 전환하면 패널을 숨깁니다.",
+    "lowmem": "저메모리 모드",
+    "lowmemDesc": "숨기면 X를 열어 두지 않고 닫으며, 표시하면 새 창을 엽니다. 바 아이콘을 Alt+클릭하여 전환합니다(아이콘이 라임색으로 바뀜).",
+    "draftTitle": "X Panel: 보내지 않은 게시물",
+    "draftBody": "작성 중인 게시물이 있습니다. 패널을 닫기 전에 임시 저장하거나 삭제하세요.",
+    "panelBrowser": "패널 브라우저",
+    "systemDefault": "시스템 기본값"
   },
   "zh": {
     "title": "X Panel — 偏好设置",
@@ -357,7 +423,13 @@
     "watchdog": "X 出错时重新加载",
     "watchdogDesc": "当页面标题显示加载失败时重新加载（正在使用时除外）。",
     "autohide": "失去焦点时隐藏",
-    "autohideDesc": "切换到其他窗口时隐藏面板。"
+    "autohideDesc": "切换到其他窗口时隐藏面板。",
+    "lowmem": "低内存模式",
+    "lowmemDesc": "隐藏时关闭 X，而不是保持打开；显示时打开新窗口。按住 Alt 点击栏图标即可切换（图标变为青柠绿）。",
+    "draftTitle": "X Panel：帖子未发送",
+    "draftBody": "你有正在编写的帖子。关闭面板前请将其保存为草稿或放弃。",
+    "panelBrowser": "面板浏览器",
+    "systemDefault": "系统默认"
   },
   "ar": {
     "title": "X Panel — التفضيلات",
@@ -387,7 +459,13 @@
     "watchdog": "إعادة التحميل إذا تعطل X",
     "watchdogDesc": "يعيد تحميل الصفحة عندما يشير عنوانها إلى فشل التحميل، إلا أثناء استخدامك لها.",
     "autohide": "إخفاء عند فقدان التركيز",
-    "autohideDesc": "يخفي اللوحة عند الانتقال إلى نافذة أخرى."
+    "autohideDesc": "يخفي اللوحة عند الانتقال إلى نافذة أخرى.",
+    "lowmem": "وضع الذاكرة المنخفضة",
+    "lowmemDesc": "الإخفاء يغلق X بدلًا من إبقائه مفتوحًا، والإظهار يفتح نافذة جديدة. اضغط Alt+نقر على أيقونة الشريط للتبديل (تصبح الأيقونة خضراء ليمونية).",
+    "draftTitle": "X Panel: منشور غير مُرسل",
+    "draftBody": "لديك منشور قيد الكتابة. احفظه كمسودة أو تجاهله قبل إغلاق اللوحة.",
+    "panelBrowser": "متصفح اللوحة",
+    "systemDefault": "الافتراضي للنظام"
   },
   "tr": {
     "title": "X Panel — Tercihler",
@@ -417,7 +495,13 @@
     "watchdog": "X bozulursa yeniden yükle",
     "watchdogDesc": "Başlık sayfanın yüklenemediğini gösterdiğinde sayfayı yeniden yükler; kullanırken yapmaz.",
     "autohide": "Odak kaybolunca gizle",
-    "autohideDesc": "Başka bir pencereye geçtiğinizde paneli gizler."
+    "autohideDesc": "Başka bir pencereye geçtiğinizde paneli gizler.",
+    "lowmem": "Düşük bellek modu",
+    "lowmemDesc": "Gizlemek X'i açık tutmak yerine kapatır; göstermek yeni bir pencere açar. Çubuk simgesine Alt+tıklayarak açıp kapatın (simge limon yeşili olur).",
+    "draftTitle": "X Panel: gönderilmemiş gönderi",
+    "draftBody": "Yazmakta olduğunuz bir gönderi var. Paneli kapatmadan önce taslak olarak kaydedin veya silin.",
+    "panelBrowser": "Panel tarayıcısı",
+    "systemDefault": "Sistem varsayılanı"
   },
   "sv": {
     "title": "X Panel — Inställningar",
@@ -447,7 +531,13 @@
     "watchdog": "Ladda om om X kraschar",
     "watchdogDesc": "Laddar om sidan när titeln visar att den inte laddades, utom när du använder den.",
     "autohide": "Dölj vid fokusförlust",
-    "autohideDesc": "Döljer panelen när du byter till ett annat fönster."
+    "autohideDesc": "Döljer panelen när du byter till ett annat fönster.",
+    "lowmem": "Lågminnesläge",
+    "lowmemDesc": "Att dölja stänger X i stället för att hålla det öppet; att visa öppnar ett nytt fönster. Alt+klicka på ikonen i fältet för att växla (ikonen blir limegrön).",
+    "draftTitle": "X Panel: inlägg ej skickat",
+    "draftBody": "Du har ett påbörjat inlägg. Spara det som utkast, eller släng det, innan du stänger panelen.",
+    "panelBrowser": "Panelens webbläsare",
+    "systemDefault": "Systemets standard"
   },
   "da": {
     "title": "X Panel — Indstillinger",
@@ -477,7 +567,13 @@
     "watchdog": "Genindlæs hvis X fejler",
     "watchdogDesc": "Genindlæser siden, når titlen viser at den ikke blev indlæst, undtagen mens du bruger den.",
     "autohide": "Skjul ved tab af fokus",
-    "autohideDesc": "Skjuler panelet, når du skifter til et andet vindue."
+    "autohideDesc": "Skjuler panelet, når du skifter til et andet vindue.",
+    "lowmem": "Lavhukommelsestilstand",
+    "lowmemDesc": "Skjul lukker X i stedet for at holde det åbent; vis åbner et nyt vindue. Alt+klik på ikonet i bjælken for at skifte (ikonet bliver limegrønt).",
+    "draftTitle": "X Panel: opslag ikke sendt",
+    "draftBody": "Du har et påbegyndt opslag. Gem det som kladde, eller kassér det, før du lukker panelet.",
+    "panelBrowser": "Panelets browser",
+    "systemDefault": "Systemstandard"
   },
   "no": {
     "title": "X Panel — Innstillinger",
@@ -507,7 +603,13 @@
     "watchdog": "Last inn på nytt hvis X feiler",
     "watchdogDesc": "Laster inn siden på nytt når tittelen viser at den ikke ble lastet, unntatt mens du bruker den.",
     "autohide": "Skjul ved tap av fokus",
-    "autohideDesc": "Skjuler panelet når du bytter til et annet vindu."
+    "autohideDesc": "Skjuler panelet når du bytter til et annet vindu.",
+    "lowmem": "Lavminnemodus",
+    "lowmemDesc": "Skjul lukker X i stedet for å holde det åpent; vis åpner et nytt vindu. Alt+klikk på ikonet i linjen for å veksle (ikonet blir limegrønt).",
+    "draftTitle": "X Panel: innlegg ikke sendt",
+    "draftBody": "Du har et påbegynt innlegg. Lagre det som utkast, eller forkast det, før du lukker panelet.",
+    "panelBrowser": "Panelets nettleser",
+    "systemDefault": "Systemstandard"
   },
   "fi": {
     "title": "X Panel — Asetukset",
@@ -537,7 +639,13 @@
     "watchdog": "Lataa uudelleen, jos X kaatuu",
     "watchdogDesc": "Lataa sivun uudelleen, kun sen otsikko kertoo latauksen epäonnistuneen, paitsi kun käytät sitä.",
     "autohide": "Piilota, kun kohdistus katoaa",
-    "autohideDesc": "Piilottaa paneelin, kun siirryt toiseen ikkunaan."
+    "autohideDesc": "Piilottaa paneelin, kun siirryt toiseen ikkunaan.",
+    "lowmem": "Vähän muistia -tila",
+    "lowmemDesc": "Piilottaminen sulkee X:n sen sijaan, että se jäisi auki; näyttäminen avaa uuden ikkunan. Alt+napsauta palkin kuvaketta vaihtaaksesi (kuvake muuttuu limetinvihreäksi).",
+    "draftTitle": "X Panel: lähettämätön julkaisu",
+    "draftBody": "Sinulla on kesken oleva julkaisu. Tallenna se luonnokseksi tai hylkää se ennen paneelin sulkemista.",
+    "panelBrowser": "Paneelin selain",
+    "systemDefault": "Järjestelmän oletus"
   },
   "cs": {
     "title": "X Panel — Předvolby",
@@ -567,6 +675,12 @@
     "watchdog": "Znovu načíst, když X selže",
     "watchdogDesc": "Znovu načte stránku, když její titulek ukazuje chybu načítání, kromě doby, kdy ji používáte.",
     "autohide": "Skrýt při ztrátě fokusu",
-    "autohideDesc": "Skryje panel, když přepnete do jiného okna."
+    "autohideDesc": "Skryje panel, když přepnete do jiného okna.",
+    "lowmem": "Úsporný režim paměti",
+    "lowmemDesc": "Skrytí X zavře, místo aby zůstalo otevřené; zobrazení otevře nové okno. Alt+kliknutím na ikonu v liště režim přepnete (ikona zezelená jako limetka).",
+    "draftTitle": "X Panel: neodeslaný příspěvek",
+    "draftBody": "Máte rozepsaný příspěvek. Před zavřením panelu ho uložte jako koncept, nebo ho zahoďte.",
+    "panelBrowser": "Prohlížeč panelu",
+    "systemDefault": "Výchozí systémový"
   }
 }
