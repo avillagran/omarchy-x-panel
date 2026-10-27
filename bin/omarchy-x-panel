@@ -571,7 +571,9 @@ draft_notify() {
   i18n=$(read_file_safe "$PLUGIN_DIR/i18n.json")
   title=$(printf '%s' "$i18n" | jq -r --arg l "$lang" '(.[$l].draftTitle // .en.draftTitle) // empty' 2>/dev/null)
   body=$(printf '%s' "$i18n" | jq -r --arg l "$lang" '(.[$l].draftBody // .en.draftBody) // empty' 2>/dev/null)
-  timeout 5 notify-send -a "X Panel" -u critical -- "${title:-X Panel}" "${body:-Save your post as a draft before closing.}" >/dev/null 2>&1 || true
+  # The omarchy-glyph hint shows the bar's 𝕏 as the notification icon.
+  timeout 5 notify-send -a "X Panel" -u critical -h "string:omarchy-glyph:𝕏" \
+    -- "${title:-X Panel}" "${body:-Save your post as a draft before closing.}" >/dev/null 2>&1 || true
 }
 
 # Called before a `browser` or `lowmem` change is saved, while the current

@@ -4,6 +4,10 @@ Opera-GX style always-on **X (x.com, Twitter) side panel** for [Omarchy](https:/
 
 The panel uses your **system default browser** and its native profile. The plugin reuses its tracked panel; otherwise it opens a dedicated window. Chromium browsers use a dedicated native popup with client-only fullscreen: browser controls are hidden while X keeps its unread count in the window title. Links to other sites open in a normal browser window. The compositor keeps the panel floating at the configured size. The popup is opened automatically through a short-lived, private local HTML launcher; no extension or browser debugging port is used. Floorp uses its native Web App mode. X Panel reuses or creates the X app registration and automatically disables **Show Toolbar** through Floorp’s native settings control before launching it. No manual installation or navigation inside the app is required. The toolbar setting applies to Floorp Web App windows; regular browser windows keep their controls. The adapter requires Python GObject introspection and the desktop AT-SPI accessibility service. It does not restart Floorp or rewrite a running `prefs.js`. It is pinned (visible on every workspace) and floating at a configurable position and size, toggled from the bar icon or `SUPER+SHIFT+X`. By default hiding never closes the window, so the session and scroll position are preserved; low-memory mode closes it instead to free memory.
 
+## Version 1.3.1
+
+The unsent-post notification shows the bar's `𝕏` as its icon.
+
 ## Version 1.3.0
 
 - **Low-memory mode** (Alt+click the `𝕏` icon, which turns lime): hiding closes X instead of keeping it in memory, and the next show opens a fresh window. If a post is still being written, the page's own leave-site prompt keeps it open and a notification asks you to save a draft.
