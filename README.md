@@ -48,7 +48,13 @@ Open the preferences panel (right-click the bar icon) and switch on *Keyboard
 shortcut* — only then does the plugin write `~/.config/hypr/x-panel-bindings.lua`
 and append a single `require("hypr.x-panel-bindings")` line to
 `~/.config/hypr/hyprland.lua` (idempotent, atomic writes). Switching it off
-removes both and restores Omarchy's default bind.
+removes both and restores Omarchy's default bind. Enabling also migrates the
+exact legacy `require("x-panel-bindings")` line to the namespaced spelling,
+without duplicating it. Disabling removes both generated spellings. Other
+configuration bytes and the file mode are preserved; a private
+`.x-panel-backup-*` copy is kept beside `hyprland.lua` before each rewrite.
+If the main config cannot be read completely or replaced, the module is
+retained and the operation reports failure; fix the config access and retry.
 
 ## Usage
 
@@ -70,13 +76,13 @@ omarchy plugin remove io.github.avillagran.omarchy-x-panel
 ```
 
 If you turned the keybind on, turn it off first in the preferences panel; that
-removes both generated changes. If the plugin is already gone, delete them by hand
-to restore Omarchy's default X bind:
-
-```bash
-sed -i '/require("hypr.x-panel-bindings")/d' ~/.config/hypr/hyprland.lua
-rm -f ~/.config/hypr/x-panel-bindings.lua
-```
+removes both generated changes. If the plugin is already gone, open
+`~/.config/hypr/hyprland.lua` in your editor and remove only the exact standalone
+lines `require("x-panel-bindings")` and `require("hypr.x-panel-bindings")`.
+Save successfully **before** deleting `~/.config/hypr/x-panel-bindings.lua`;
+retain the module if you cannot read or save the main config. Private
+`.x-panel-backup-*` copies beside the config can be removed once you have checked
+the result.
 
 Preferences are kept outside the plugin directory, so removal leaves them. To
 delete them too:
