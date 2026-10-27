@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "io.github.avillagran.omarchy-x-panel",
   "name": "X Panel",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "author": "Andrés Villagrán <andres@villagranquiroz.cl>",
   "license": "MIT",
   "description": "Opera-GX style persistent X (x.com, Twitter) side panel: one always-on, pinned, floating x.com window toggled from the bar or SUPER+SHIFT+X. Hiding keeps the session alive.",

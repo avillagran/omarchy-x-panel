@@ -2,7 +2,11 @@
 
 Opera-GX style always-on **X (x.com, Twitter) side panel** for [Omarchy](https://github.com/Omarchy/omarchy) (Quickshell / Hyprland).
 
-The panel uses your **system default browser** and its native profile. An existing X window in that browser is reused; otherwise a new window is opened. Chromium browsers use a dedicated native popup with client-only fullscreen: browser controls are hidden while X keeps its unread count in the window title. Links to other sites open in a normal browser window. The compositor keeps the panel floating at the configured size. The popup is opened automatically through a short-lived, loopback-only launcher; no extension or browser debugging port is used. Floorp uses its native Web App mode. X Panel reuses or creates the X app registration and automatically disables **Show Toolbar** through Floorp’s native settings control before launching it. No manual installation or navigation inside the app is required. The toolbar setting applies to Floorp Web App windows; regular browser windows keep their controls. The adapter requires Python GObject introspection and the desktop AT-SPI accessibility service. It does not restart Floorp or rewrite a running `prefs.js`. It is pinned (visible on every workspace) and floating at a configurable position and size, toggled from the bar icon or `SUPER+SHIFT+X` without ever closing the window, so the session and scroll position are preserved.
+The panel uses your **system default browser** and its native profile. The plugin reuses its tracked panel; otherwise it opens a dedicated window. Chromium browsers use a dedicated native popup with client-only fullscreen: browser controls are hidden while X keeps its unread count in the window title. Links to other sites open in a normal browser window. The compositor keeps the panel floating at the configured size. The popup is opened automatically through a short-lived, private local HTML launcher; no extension or browser debugging port is used. Floorp uses its native Web App mode. X Panel reuses or creates the X app registration and automatically disables **Show Toolbar** through Floorp’s native settings control before launching it. No manual installation or navigation inside the app is required. The toolbar setting applies to Floorp Web App windows; regular browser windows keep their controls. The adapter requires Python GObject introspection and the desktop AT-SPI accessibility service. It does not restart Floorp or rewrite a running `prefs.js`. It is pinned (visible on every workspace) and floating at a configurable position and size, toggled from the bar icon or `SUPER+SHIFT+X` without ever closing the window, so the session and scroll position are preserved.
+
+## Version 1.2.0
+
+Uses the real default browser, restores Chromium unread counts while sending external links to normal browser windows, and adds a full-width count badge matching the desktop style. Includes the legacy keyboard-shortcut migration fix.
 
 ## Screenshot
 
@@ -66,7 +70,7 @@ retained and the operation reports failure; fix the config access and retry.
 
 - Identity is tracked as `address|pid` in `$XDG_RUNTIME_DIR/x-panel.state`.
 - Layout is computed against the **safe area** (the monitor minus the Quickshell bar strip), so the panel never covers the bar.
-- Preferences are persisted at `${XDG_CONFIG_HOME:-~/.config}/omarchy-x-panel/prefs.json` (survives reboots; outside the plugin directory, so writing them never triggers a plugin reload; a pre-1.1 file in `$XDG_RUNTIME_DIR` is migrated automatically) and applied live via the bundled helper script. All state writes use exclusive `mktemp` + atomic `mv`, and every external read is opened once with `O_NOFOLLOW | O_NONBLOCK`, verified via `fstat`, and capped at 256 KiB.
+- Preferences are persisted at `${XDG_CONFIG_HOME:-~/.config}/omarchy-x-panel/prefs.json` (survives reboots; outside the plugin directory, so writing them never triggers a plugin reload; a pre-1.1 file in `$XDG_RUNTIME_DIR` is migrated automatically) and applied live via the bundled helper script. State files are private and replaced atomically. File reads use `O_NOFOLLOW | O_NONBLOCK`, a regular-file check and a 256 KiB cap; compositor output is limited to 256 KiB with a five-second total deadline before collection.
 - The default browser is resolved through `xdg-settings` (with an HTTPS MIME fallback) and its desktop entry, preserving launch arguments and the native profile. Floorp launches the registered X app with its native `--start-ssb` command and app window class; Floorp builds without the experimental app-specific Linux window class are supported by tracking the newly launched window and its PID instead of adopting an arbitrary browser window. The panel bypasses `X.desktop` and the stock webapp launcher, which substitutes Chromium for unsupported browsers. Changing the default browser leaves the old window intact and opens or reuses X in the newly selected browser. There is no silent Chromium fallback.
 
 ## Uninstall
@@ -90,6 +94,14 @@ delete them too:
 ```bash
 rm -rf ~/.config/omarchy-x-panel
 ```
+
+## Dependencies and side effects
+
+Requires Omarchy with the Hyprland Lua dispatcher API, Python 3, jq, xdg-utils, uwsm-app and a supported system browser. No sudo or pkexec is required, and the plugin downloads no executable code. Floorp additionally requires Python GObject introspection and AT-SPI.
+
+Chromium creates a private, static HTML file in a random 0700 directory under `$XDG_RUNTIME_DIR`, opens it through the browser, activates its own button once and removes the launcher after opening X. No network listener is created. The launcher and panel are identified by nonce, address and PID; unrelated browser windows are preserved. Popup behavior has been verified with Google Chrome; other Chromium derivatives still need live testing.
+
+Runtime state uses `$XDG_RUNTIME_DIR/x-panel.*`; it contains window identity, timestamps and watchdog state. On logout it disappears. Floorp may initialize its default profile, registers X in that profile’s `ssb/ssb.json`, and disables the shared Web App toolbar setting through its native UI, temporarily enabling desktop accessibility and restoring its previous value. To reverse that optional browser change, re-enable **Show Toolbar** in Floorp Hub → Web Apps and remove X from Floorp’s own Web App list. Existing registrations are reused. Close the persistent browser panel manually if you no longer want it after removing the plugin.
 
 ## License
 

@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
+from urllib.parse import urlsplit, unquote
 from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location("chromium_popup", Path(__file__).resolve().parents[1] / "bin/chromium-popup.py")
@@ -18,15 +19,22 @@ class PopupTests(unittest.TestCase):
         snapshots = [[], [launcher], [popup], [launcher]] if focused else [[], [launcher], [launcher]]
         info = {"baseCommand": ["chrome", "--profile-directory=Work"],
                 "class": "^google-chrome$", "title": " / X"}
+        generated = []
+        def check_private_page(command, **kwargs):
+            page = Path(unquote(urlsplit(command[-1]).path))
+            self.assertEqual(page.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(page.parent.stat().st_mode & 0o777, 0o700)
+            self.assertIn("popup,width=642,height=806", page.read_text())
+            generated.append(page.parent)
+
         with tempfile.TemporaryDirectory() as folder, \
              patch.dict(os.environ, XDG_RUNTIME_DIR=folder), \
              patch.object(module.secrets, "token_hex", return_value="token"), \
-             patch.object(module, "HTTPServer"), \
              patch.object(module, "clients", side_effect=snapshots), \
              patch.object(module, "hypr", return_value=json.dumps({"address": "0x123" if focused else "0x999"})), \
              patch.object(module, "dispatch") as dispatch, \
              patch.object(module.time, "sleep"), \
-             patch.object(module.subprocess, "Popen") as launch:
+             patch.object(module.subprocess, "Popen", side_effect=check_private_page) as launch:
             marker = Path(folder) / "x-panel.chromium-popup"
             if focused:
                 module.launch(info)
@@ -40,6 +48,8 @@ class PopupTests(unittest.TestCase):
                     module.launch(info)
                 self.assertFalse(marker.exists())
                 self.assertFalse(any("send_key_state" in c.args[0] for c in dispatch.call_args_list))
+            self.assertTrue(generated)
+            self.assertTrue(all(not path.exists() for path in generated))
             self.assertIn('window.close({ window = "address:0x123"', dispatch.call_args_list[-1].args[0])
 
     def test_popup_marker_and_activation_are_scoped_to_owned_launcher(self):

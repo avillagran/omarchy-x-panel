@@ -21,6 +21,9 @@ def register(profile, app_id):
     if directory.is_symlink() or not Path(profile).is_dir():
         raise ValueError("Unsafe Floorp app directory")
     directory.mkdir(mode=0o700, exist_ok=True)
+    directory.chmod(0o700)
+    if (directory / "ssb.json").exists():
+        (directory / "ssb.json").chmod(0o600, follow_symlinks=False)
     path = directory / "ssb.json"
     original = browser.read_text(path) if path.exists() else None
     data = json.loads(original) if original is not None else {}
@@ -72,7 +75,14 @@ def _hide_toolbar(command, profile):
     from gi.repository import Atspi
     Atspi.set_timeout(1000, 1000)
 
+    budget = [0]
+    def visit():
+        budget[0] += 1
+        if budget[0] > 2000:
+            raise ValueError("Floorp accessibility tree exceeds budget")
+
     def tabs(node, depth=0):
+        visit()
         if node is None or depth > 6:
             return
         if node.get_role_name() == "document web":
@@ -85,7 +95,7 @@ def _hide_toolbar(command, profile):
 
     def apps():
         desktop = Atspi.get_desktop(0)
-        for index in range(desktop.get_child_count()):
+        for index in range(min(desktop.get_child_count(), 80)):
             app = desktop.get_child_at_index(index)
             if app is not None and app.get_name() == "Floorp":
                 yield app
@@ -95,6 +105,7 @@ def _hide_toolbar(command, profile):
                      start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     def controls(node, depth=0):
+        visit()
         if node is None or depth > 22:
             return
         name = node.get_name()
@@ -111,6 +122,7 @@ def _hide_toolbar(command, profile):
     deadline = started + 18
     retried = False
     while time.monotonic() < deadline:
+        budget[0] = 0
         for app in apps():
             for control in controls(app):
                 if control.get_state_set().contains(Atspi.StateType.CHECKED):
@@ -122,7 +134,7 @@ def _hide_toolbar(command, profile):
                 for tab in list(tabs(app)):
                     if tab in previous or tab.get_name() != "Floorp Hub":
                         continue
-                    for index in range(tab.get_child_count()):
+                    for index in range(min(tab.get_child_count(), 80)):
                         close = tab.get_child_at_index(index)
                         if close is not None and "tab-close-button" in close.get_attributes().get("class", "").split():
                             close.get_action_iface().do_action(0)
@@ -140,7 +152,7 @@ def _hide_toolbar(command, profile):
 
 if __name__ == "__main__":
     try:
-        info = json.loads(sys.argv[1])
+        info = json.loads(sys.stdin.read(262145))
         register(info["profile"], info["appId"])
         hide_toolbar(info["baseCommand"], info["profile"])
     except Exception as error:

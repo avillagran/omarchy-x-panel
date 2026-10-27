@@ -38,10 +38,10 @@ class BrowserTests(unittest.TestCase):
     def resolve(self, desktop, executable, fallback=False):
         (self.root / "applications" / desktop).write_text(
             f"[Desktop Entry]\nName=Firefox\nType=Application\nExec={executable}\n")
-        responses = [subprocess.CompletedProcess([], 0, desktop, "")]
+        responses = [desktop]
         if fallback:
-            responses.insert(0, subprocess.CompletedProcess([], 1, "", ""))
-        with patch.object(module.subprocess, "run", side_effect=responses):
+            responses.insert(0, ValueError("unavailable"))
+        with patch.object(module, "capture", side_effect=responses):
             return module.browser()
 
     def test_custom_floorp_entry_keeps_quoted_path_and_profile(self):
@@ -131,7 +131,7 @@ ensure_client_fullscreen '0x123'
 
 
     def test_native_registration_preserves_existing_apps_and_is_idempotent(self):
-        spec = importlib.util.spec_from_file_location("floorp_setup", ROOT / "bin/floorp-setup.py")
+        spec = importlib.util.spec_from_file_location("floorp_setup", ROOT / "bin/floorp-configure.py")
         setup = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(setup)
         profile = self.config / "floorp/default"

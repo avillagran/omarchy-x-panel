@@ -14,6 +14,9 @@ import time
 import uuid
 from urllib.parse import urlsplit
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from process_io import capture
+
 
 def read_text(path):
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
@@ -40,7 +43,7 @@ def floorp_app(command):
                                    and not any(flag in command for flag in ("-P", "--profile", "-profile"))):
         # A cold browser remains running; subprocess.run(timeout=...) would kill
         # it. Let Floorp create and select its own installation-default profile.
-        lock_path = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / f"x-panel-floorp-init-{os.getuid()}.lock"
+        lock_path = Path(os.environ["XDG_RUNTIME_DIR"]) / f"x-panel-floorp-init-{os.getuid()}.lock"
         fd = os.open(lock_path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
         try:
             if not stat.S_ISREG(os.fstat(fd).st_mode):
@@ -122,8 +125,10 @@ def browser():
     desktop = ""
     for command in (["xdg-settings", "get", "default-web-browser"],
                     ["xdg-mime", "query", "default", "x-scheme-handler/https"]):
-        result = subprocess.run(command, env=env, capture_output=True, text=True, timeout=5)
-        desktop = result.stdout.strip() if result.returncode == 0 else ""
+        try:
+            desktop = capture(command, env=env, timeout=5, limit=4096).strip()
+        except (OSError, ValueError, TimeoutError):
+            desktop = ""
         if desktop:
             break
     if not desktop or "/" in desktop or not desktop.endswith(".desktop"):
@@ -210,13 +215,14 @@ if __name__ == "__main__":
         result = browser()
         if sys.argv[1:] == ["prepare"]:
             if "appId" in result:
-                subprocess.run([sys.executable, str(Path(__file__).with_name("floorp-setup.py")),
-                                json.dumps(result)], check=True, timeout=30)
+                subprocess.run([sys.executable, str(Path(__file__).with_name("floorp-configure.py"))],
+                               input=json.dumps(result), text=True, check=True, timeout=30)
             sys.exit(0)
         if sys.argv[1:] == ["launch"]:
             if result.get("popup"):
-                os.execvp(sys.executable, [sys.executable, str(Path(__file__).with_name("chromium-popup.py")),
-                                          json.dumps(result)])
+                subprocess.run([sys.executable, str(Path(__file__).with_name("chromium-popup.py"))],
+                               input=json.dumps(result), text=True, check=True, timeout=20)
+                sys.exit(0)
             os.execvp("uwsm-app", ["uwsm-app", "--", *result["command"]])
         print(json.dumps(result))
     except (OSError, ValueError, KeyError, IndexError, configparser.Error, subprocess.SubprocessError) as error:

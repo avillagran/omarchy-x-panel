@@ -219,7 +219,7 @@ BarWidget {
   Process {
     id: i18nLoader
     running: false
-    command: ["bash", "-lc", "head -c 262144 '" + Qt.resolvedUrl("i18n.json").toString().replace("file://", "") + "'"]
+    command: ["timeout", "5", "head", "-c", "262144", "--", Qt.resolvedUrl("i18n.json").toString().replace("file://", "")]
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: root.loadI18n(text)
@@ -250,7 +250,7 @@ BarWidget {
   Process {
     id: localeProc
     running: false
-    command: ["bash", "-lc", "localectl status 2>/dev/null | grep -i 'LANG=' | head -1"]
+    command: ["bash", "-lc", "timeout 5 localectl status 2>/dev/null | head -c 4096 | grep -i 'LANG=' | head -1"]
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: {

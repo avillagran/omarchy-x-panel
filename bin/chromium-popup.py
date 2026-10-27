@@ -8,16 +8,16 @@ import secrets
 import subprocess
 import sys
 import tempfile
-import threading
 import time
-from http.server import BaseHTTPRequestHandler, HTTPServer
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from process_io import capture
 
 
 def hypr(*args):
-    result = subprocess.run(["hyprctl", *args], capture_output=True, text=True, timeout=3)
-    if result.returncode or result.stdout.strip().startswith("error"):
+    output = capture(["hyprctl", *args], timeout=3)
+    if output.strip().startswith("error"):
         raise RuntimeError("Compositor operation failed")
-    return result.stdout
+    return output
 
 
 def clients():
@@ -39,27 +39,15 @@ def launch(info):
             "'popup,width=642,height=806')\">Open X</button>").encode()
     before = {c["address"] for c in clients()}
 
-    class Handler(BaseHTTPRequestHandler):
-        def do_GET(self):
-            if self.path != "/" + token:
-                self.send_error(404)
-                return
-            self.send_response(200)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.send_header("Cache-Control", "no-store")
-            self.send_header("Content-Length", str(len(page)))
-            self.end_headers()
-            self.wfile.write(page)
-
-        def log_message(self, *args):
-            pass
-
-    server = HTTPServer(("127.0.0.1", 0), Handler)
-    server_thread = threading.Thread(target=server.serve_forever, daemon=True)
-    server_thread.start()
+    # Generated static page only; no listener, credentials or user content.
+    directory = tempfile.TemporaryDirectory(prefix=".x-panel-launch-", dir=os.environ["XDG_RUNTIME_DIR"])
+    page_path = Path(directory.name) / "launch.html"
+    fd = os.open(page_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "wb") as output:
+        output.write(page)
     launcher = None
     try:
-        url = "http://127.0.0.1:%d/%s" % (server.server_port, token)
+        url = page_path.as_uri()
         subprocess.Popen(["uwsm-app", "--", *info["baseCommand"], "--new-window", url],
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                          start_new_session=True)
@@ -103,8 +91,7 @@ def launch(info):
             time.sleep(0.1)
         raise RuntimeError("Chromium did not create a dedicated popup")
     finally:
-        server.shutdown()
-        server.server_close()
+        directory.cleanup()
         if launcher is not None:
             # Close only our exact nonce-titled launcher, never an X window.
             if any(c["address"] == launcher["address"] and c["title"].startswith(title) for c in clients()):
@@ -113,7 +100,7 @@ def launch(info):
 
 if __name__ == "__main__":
     try:
-        launch(json.loads(sys.argv[1]))
+        launch(json.loads(sys.stdin.read(262145)))
     except Exception as error:
         print("Cannot open Chromium popup: " + str(error), file=sys.stderr)
         sys.exit(1)

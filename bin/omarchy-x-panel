@@ -14,6 +14,7 @@
 # `set-pref <key> <value>`.
 
 set -uo pipefail
+umask 077
 
 # Portable: derive the plugin dir from this script's own location (bin/ -> plugin root),
 # so it works after `omarchy plugin add` on any machine, not just this one.
@@ -59,7 +60,7 @@ try:
     st = os.fstat(fd)
     if not stat.S_ISREG(st.st_mode) or st.st_size > maxb:
         sys.exit(1)
-    data = os.read(fd, maxb)
+    data = os.read(fd, maxb + 1)
     if len(data) > maxb:
         sys.exit(1)
     sys.stdout.buffer.write(data)
@@ -68,12 +69,13 @@ finally:
 PY
 }
 hypr_json() {                      # run a hyprctl -j query, read it safely
-  local tmp; tmp=$(mktemp -p "$RUNDIR") || { printf ''; return 1; }
-  if timeout 5 "$@" > "$tmp" 2>/dev/null; then
-    read_file_safe "$tmp"
-  fi
-  rm -f "$tmp"
+  python3 "$SCRIPT_DIR/process_io.py" "$@"
 }
+
+if [ -d "$CONFIG_DIR" ] && [ ! -L "$CONFIG_DIR" ]; then
+  chmod 700 "$CONFIG_DIR" || exit 1
+  if [ -f "$PREFS" ] && [ ! -L "$PREFS" ]; then chmod 600 "$PREFS" || exit 1; fi
+fi
 
 SPECIAL="special:sidepanelX"
 # Resolve the actual system default, including Mozilla browsers such as Floorp.
@@ -104,6 +106,7 @@ write_prefs_jq() {
   # Refuse a symlinked config dir (G12): the write must land where we think.
   [ -L "$CONFIG_DIR" ] && return 1
   mkdir -p -m 700 "$CONFIG_DIR" 2>/dev/null || return 1
+  chmod 700 "$CONFIG_DIR" || return 1
   local tmp; tmp=$(mktemp -p "$CONFIG_DIR") || return 1
   local filter="$1"; shift
   if echo "$cur" | jq "$@" "$filter" > "$tmp" 2>/dev/null; then
@@ -384,7 +387,7 @@ launch_or_reuse() {
     ( python3 "$SCRIPT_DIR/panel-browser.py" launch >/dev/null 2>&1 & )
     for _ in $(seq 1 40); do
       sleep 0.3
-      ap=$(x_clients | jq -r --argjson before "$before" '.[] | select(.address as $a | $before | index($a) | not) | "\(.address)|\(.pid)"' | head -n1)
+      ap=$(x_clients | jq -r --slurpfile before <(printf '%s' "$before") '.[] | select(.address as $a | $before[0] | index($a) | not) | "\(.address)|\(.pid)"' | head -n1)
       [ -n "$ap" ] && break
     done
   fi
@@ -501,9 +504,9 @@ geom_json() {
   saved=$(read_file_safe "$STATE" | tr -d '[:space:]'); ap=$(resolve "$saved"); a="${ap%%|*}"
   if [ -z "$a" ]; then echo '{"visible":false}'; return; fi
   clients=$(hypr_json hyprctl clients -j); mons=$(hypr_json hyprctl monitors -j)
-  jq -cn --argjson c "${clients:-[]}" --argjson m "${mons:-[]}" --argjson p "$(read_prefs)" \
+  printf '%s\n' "${clients:-[]}" "${mons:-[]}" "$(read_prefs)" | jq -cs \
     --arg a "$a" --arg sp "$SPECIAL" '
-    ($c | map(select(.address == $a)) | .[0]) as $w
+    .[0] as $c | .[1] as $m | .[2] as $p | ($c | map(select(.address == $a)) | .[0]) as $w
     | if $w == null or $w.workspace.name == $sp or ($w.pinned | not) or ($w.floating | not)
       then {visible: false, address: $a}
       else ($m | map(select(.id == $w.monitor)) | .[0]) as $mo
