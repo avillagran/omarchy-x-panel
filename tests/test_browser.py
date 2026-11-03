@@ -44,6 +44,40 @@ class BrowserTests(unittest.TestCase):
         with patch.object(module, "capture", side_effect=responses):
             return module.browser()
 
+    def test_default_skips_omarchy_routing_desktop(self):
+        with patch.dict(os.environ, XDG_CURRENT_DESKTOP="Hyprland", BROWSER="omarchy-launch-browser"), \
+             patch.object(module, "capture", side_effect=["omarchy-browser.desktop", "google-chrome.desktop"]) as capture:
+            self.assertEqual(module.default_desktop(), "google-chrome.desktop")
+            self.assertEqual(capture.call_args_list[0].args[0], ["omarchy-cmd-default-browser"])
+            self.assertEqual(capture.call_args_list[1].kwargs["env"]["XDG_CURRENT_DESKTOP"], "")
+            self.assertNotIn("BROWSER", capture.call_args_list[0].kwargs["env"])
+
+    def test_old_omarchy_without_default_helper_uses_xdg(self):
+        with patch.object(module, "capture", side_effect=[FileNotFoundError(), "firefox.desktop"]):
+            self.assertEqual(module.default_desktop(), "firefox.desktop")
+
+    def test_old_desktop_specific_browser_is_preserved(self):
+        with patch.dict(os.environ, XDG_CURRENT_DESKTOP="Hyprland"), \
+             patch.object(module, "capture", side_effect=[FileNotFoundError(), "custom-firefox.desktop"]) as capture:
+            self.assertEqual(module.default_desktop(), "custom-firefox.desktop")
+            self.assertEqual(capture.call_args_list[1].kwargs["env"]["XDG_CURRENT_DESKTOP"], "Hyprland")
+
+    def test_legacy_https_fallback_still_works(self):
+        with patch.object(module, "capture", side_effect=[FileNotFoundError(), ValueError(), "floorp.desktop"]):
+            self.assertEqual(module.default_desktop(), "floorp.desktop")
+
+    def test_browser_list_caps_display_names_and_rows(self):
+        for i in range(70):
+            (self.root / "applications" / f"browser-{i}.desktop").write_text(
+                "[Desktop Entry]\nName=" + "Z" * 400 + "\nType=Application\nCategories=WebBrowser;\nExec=browser\n")
+        found = module.list_browsers()
+        self.assertEqual(len(found), 64)
+        self.assertTrue(all(len(item['name']) <= 128 for item in found))
+
+    def test_routing_desktop_is_never_accepted_as_a_browser(self):
+        with patch.object(module, "capture", return_value="omarchy-browser.desktop"):
+            self.assertEqual(module.default_desktop(), "")
+
     def test_custom_floorp_entry_keeps_quoted_path_and_profile(self):
         info = self.resolve("userapp-Firefox.desktop", '"/opt/Floorp Browser/floorp" %u')
         self.assertEqual(info["command"], ["/opt/Floorp Browser/floorp", "--name", "floorp-test-x",

@@ -15,6 +15,7 @@ import time
 import uuid
 from urllib.parse import urlsplit
 
+sys.dont_write_bytecode = True
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from process_io import capture
 
@@ -151,13 +152,25 @@ def is_browser(entry):
 def default_desktop():
     env = dict(os.environ)
     env.pop("BROWSER", None)
-    for command in (["xdg-settings", "get", "default-web-browser"],
-                    ["xdg-mime", "query", "default", "x-scheme-handler/https"]):
+    # Omarchy 4.5 routes desktop HTTP/HTTPS handlers through a NoDisplay
+    # omarchy-browser.desktop entry. It is not the browser: using its Exec
+    # would launch a normal window and its class could never identify X.
+    # Ask Omarchy for the underlying entry; retain XDG fallback on older builds.
+    xdg_env = {**env, "XDG_CURRENT_DESKTOP": ""}
+    queries = [(["omarchy-cmd-default-browser"], env),
+               (["xdg-settings", "get", "default-web-browser"], env),
+               (["xdg-mime", "query", "default", "x-scheme-handler/https"], env),
+               (["xdg-settings", "get", "default-web-browser"], xdg_env),
+               (["xdg-mime", "query", "default", "x-scheme-handler/https"], xdg_env)]
+    routed = False
+    for command, query_env in queries:
         try:
-            desktop = capture(command, env=env, timeout=5, limit=4096).strip()
+            desktop = capture(command, env=xdg_env if routed else query_env, timeout=5, limit=4096).strip()
         except (OSError, ValueError, TimeoutError):
             desktop = ""
-        if desktop:
+        if desktop == "omarchy-browser.desktop":
+            routed = True
+        elif DESKTOP_ID.fullmatch(desktop):
             return desktop
     return ""
 
@@ -169,7 +182,7 @@ def list_browsers():
         folder = Path(root) / "applications"
         if not folder.is_dir():
             continue
-        for path in sorted(folder.glob("*.desktop")):
+        for path in folder.glob("*.desktop"):
             if path.name in found or not DESKTOP_ID.match(path.name):
                 continue
             budget -= 1
@@ -179,9 +192,9 @@ def list_browsers():
                 entry, _ = desktop_entry(path.name)
             except (OSError, ValueError, KeyError, configparser.Error):
                 continue
-            found[path.name] = entry.get("Name", path.stem) if is_browser(entry) else None
+            found[path.name] = entry.get("Name", path.stem)[:128] if is_browser(entry) else None
     browsers = [{"id": key, "name": name} for key, name in found.items() if name]
-    return sorted(browsers, key=lambda b: b["name"].lower())
+    return sorted(browsers, key=lambda b: b["name"].lower())[:64]
 
 
 FIREFOX_CLASS = "omarchy-x-panel"

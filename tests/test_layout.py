@@ -47,6 +47,39 @@ apply_layout '0x123|42'
         x, y = self.layout("HDMI 1728 0 1920 1080 LG", "0 26", "731 900", "bottom")
         self.assertEqual(y + 900, 1080)
 
+    def bar_geometry(self, monitors, layers):
+        import json, os
+        code = function("bar_geom") + r'''
+BAR_NS=omarchy-bar
+hypr_json() { if [ "$2" = monitors ]; then printf '%s' "$MONITORS"; else printf '%s' "$LAYERS"; fi; }
+bar_geom eDP-1
+'''
+        return subprocess.check_output(["bash", "-c", code], text=True,
+            env={**os.environ, "MONITORS": json.dumps(monitors), "LAYERS": json.dumps(layers)}).strip()
+
+    def test_full_monitor_bar_surface_uses_exclusive_top_reservation(self):
+        monitor = {"name": "eDP-1", "y": 4, "height": 2234, "scale": 2, "reserved": [0, 26, 0, 0]}
+        layers = {"eDP-1": {"levels": {"2": [{"namespace": "omarchy-bar", "y": 4, "h": 1117}]}}}
+        self.assertEqual(self.bar_geometry([monitor], layers), "4 26")
+
+    def test_bottom_reservation_with_negative_monitor_origin(self):
+        monitor = {"name": "eDP-1", "y": -49, "height": 2234, "scale": 2, "reserved": [0, 0, 0, 32]}
+        self.assertEqual(self.bar_geometry([monitor], {}), "1036 32")
+
+    def test_legacy_bar_without_exclusive_reservation(self):
+        monitor = {"name": "eDP-1", "y": -49, "height": 2234, "scale": 2}
+        layers = {"eDP-1": {"levels": {"2": [{"namespace": "omarchy-bar", "y": -49, "h": 32}]}}}
+        self.assertEqual(self.bar_geometry([monitor], layers), "-49 32")
+
+    def test_zero_reserved_space_preserves_legacy_layer_fallback(self):
+        monitor = {"name": "eDP-1", "y": 4, "height": 2234, "scale": 2, "reserved": [0, 0, 0, 0]}
+        layers = {"eDP-1": {"levels": {"2": [{"namespace": "omarchy-bar", "y": 4, "h": 26}]}}}
+        self.assertEqual(self.bar_geometry([monitor], layers), "4 26")
+
+    def test_no_bar_or_reservation_preserves_full_monitor_area(self):
+        monitor = {"name": "eDP-1", "y": -49, "height": 2234, "scale": 2}
+        self.assertEqual(self.bar_geometry([monitor], {}), "0 0")
+
     def rule(self, rule_class):
         import json, os
         code = function("safe_area") + function("px_value") + function("compute_xy") \

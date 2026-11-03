@@ -179,8 +179,10 @@ resolve() {
   local saved="$1" a p cur
   # Normal Chrome windows from the old launcher also accept unrelated tabs.
   # Reuse only a popup produced by our current launcher, leaving old tabs intact.
-  if [ "$X_POPUP" = true ] && [ "$saved" != "$(read_file_safe "$RUNDIR/x-panel.chromium-popup" | tr -d '[:space:]')" ]; then
-    saved=""
+  if [ "$X_POPUP" = true ]; then
+    # The popup launcher is authoritative. Recover its live window even if a
+    # previous command lost STATE; never discover a normal browser tab here.
+    saved=$(read_file_safe "$RUNDIR/x-panel.chromium-popup" | tr -d '[:space:]')
   fi
   a="${saved%%|*}"; p="${saved##*|}"
   # A browser change invalidates the old panel, but does not close it.
@@ -255,7 +257,10 @@ ensure_float() {
 ensure_client_fullscreen() {
   [ "$X_CLIENT_FULLSCREEN" = true ] || return 0
   local a="$1"
-  [ "$(window_field "$a" fullscreenClient)" = 2 ] && return 0
+  [ "${2:-}" != force ] && [ "$(window_field "$a" fullscreenClient)" = 2 ] && return 0
+  if [ "${2:-}" = force ]; then
+    hyprctl dispatch "hl.dsp.window.fullscreen_state({ internal = 0, client = 0, action = \"set\", window = \"address:$a\" })" >/dev/null 2>&1 || return 1
+  fi
   hyprctl dispatch "hl.dsp.window.fullscreen_state({ internal = 0, client = 2, action = \"set\", window = \"address:$a\" })" >/dev/null 2>&1
 }
 
@@ -280,15 +285,22 @@ size_for() {
   read_prefs | jq -r --arg m "$1" '(.monitors[$m] // {}) as $o | "\($o.width // .width) \($o.height // .height)"'
 }
 
-# Quickshell bar strip geometry on monitor $1: "barY barH" in absolute logical
-# px (or "0 0" if not found). Every monitor has its own omarchy-bar layer, so
-# the lookup MUST be scoped to the target monitor — taking the first one made
-# the panel cover the bar on any other screen. Works whether the bar is on the
-# top or the bottom edge.
+# The bar's layer surface can cover the whole monitor (Omarchy 4.5).
+# Use the compositor's exclusive top/bottom reservation, not surface height.
+# Older shells without a reservation still expose a narrow bar layer.
 bar_geom() {
   local line
-  line=$(hypr_json hyprctl layers -j 2>/dev/null | jq -r --arg m "$1" --arg ns "$BAR_NS" \
-    '[(.[$m].levels // {})[][] | select(.namespace == $ns)] | .[0] // empty | "\(.y) \(.h)"' 2>/dev/null | head -n1 || true)
+  line=$(hypr_json hyprctl monitors -j 2>/dev/null | jq -r --arg m "$1" '
+    .[] | select(.name == $m)
+    | (.height / (.scale // 1) | floor) as $h
+    | (.reserved[1] // 0) as $top | (.reserved[3] // 0) as $bottom
+    | if $top > 0 and $top < ($h / 2) then "\(.y) \($top)"
+      elif $bottom > 0 and $bottom < ($h / 2) then "\(.y + $h - $bottom) \($bottom)"
+      else empty end' 2>/dev/null | head -n1 || true)
+  if [ -z "$line" ]; then
+    line=$(hypr_json hyprctl layers -j 2>/dev/null | jq -r --arg m "$1" --arg ns "$BAR_NS" \
+      '[(.[$m].levels // {})[][] | select(.namespace == $ns)] | .[0] // empty | "\(.y) \(.h)"' 2>/dev/null | head -n1 || true)
+  fi
   echo "${line:-0 0}"
 }
 
@@ -388,9 +400,11 @@ apply_layout() {
   read -r mx my mw sy sh w h <<< "$(panel_box "${2:-}")"
   [ -n "$h" ] || return 1
   ensure_float "$a"
-  ensure_client_fullscreen "$a"
   # Position with the size the client accepted, which may exceed the request.
   read -r w h <<< "$(resize_and_measure "$a" "$w" "$h")"
+  # Chromium may restore its controls on resize without changing Hyprland's
+  # cached fullscreenClient value. Send a real 0 -> 2 transition afterwards.
+  ensure_client_fullscreen "$a" force
   xy=$(compute_xy "$(pref side)" "$(pref valign)" "$mw" "$w" "$sy" "$sh" "$h")
   x="${xy%|*}"; y="${xy#*|}"
   [ "$y" -lt 0 ] && y=0
@@ -418,20 +432,25 @@ launch_rule() {
 }
 
 launch_or_reuse() {
-  local ap before; ap=$(find_x)
+  local ap before; ap=$(resolve "")
   if [ -z "$ap" ]; then
     python3 "$SCRIPT_DIR/panel-browser.py" "${BROWSER_ARGS[@]}" prepare || return 1
-    before=$(hypr_json hyprctl clients -j | jq '[.[].address]')
-    launch_rule
-    # Use the resolved desktop command, preserving the native profile. The
-    # stock webapp launcher silently substitutes Chromium for Mozilla browsers.
-    # The browser must not inherit the toggle lock.
-    ( exec 9>&-; python3 "$SCRIPT_DIR/panel-browser.py" "${BROWSER_ARGS[@]}" launch >/dev/null 2>&1 & )
-    for _ in $(seq 1 40); do
-      sleep 0.3
-      ap=$(x_clients | jq -r --slurpfile before <(printf '%s' "$before") '.[] | select(.address as $a | $before[0] | index($a) | not) | "\(.address)|\(.pid)"' | head -n1)
-      [ -n "$ap" ] && break
-    done
+    if [ "$X_POPUP" = true ]; then
+      # Wait for the launcher to confirm the popup and atomically publish its
+      # identity. A title match alone can race the launcher or another X tab.
+      python3 "$SCRIPT_DIR/panel-browser.py" "${BROWSER_ARGS[@]}" launch || return 1
+      ap=$(resolve "")
+    else
+      before=$(hypr_json hyprctl clients -j | jq '[.[].address]')
+      launch_rule
+      # The browser must not inherit the toggle lock.
+      ( exec 9>&-; python3 "$SCRIPT_DIR/panel-browser.py" "${BROWSER_ARGS[@]}" launch >/dev/null 2>&1 & )
+      for _ in $(seq 1 40); do
+        sleep 0.3
+        ap=$(x_clients | jq -r --slurpfile before <(printf '%s' "$before") '.[] | select(.address as $a | $before[0] | index($a) | not) | "\(.address)|\(.pid)"' | head -n1)
+        [ -n "$ap" ] && break
+      done
+    fi
   fi
   if [ -z "$ap" ]; then echo "failed to launch X window" >&2; rm -f "$STATE"; exit 1; fi
   write_state "$ap"

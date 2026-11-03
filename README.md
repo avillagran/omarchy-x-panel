@@ -8,6 +8,15 @@ The panel uses your **system default browser** and its native profile. The plugi
 
 The unsent-post notification shows the bar's `𝕏` as its icon.
 
+## Version 1.3.2
+
+- Resolves the actual default browser behind Omarchy 4.5's routing desktop entry. Older versions retain desktop-specific XDG selection and the HTTPS fallback when the Omarchy helper is unavailable.
+- Uses the compositor's reserved bar area when the shell's bar surface spans the whole screen, with the previous narrow-layer fallback for older shells.
+- Waits for a confirmed Chromium popup, recovers its window identity if secondary state is lost, and reapplies chromeless mode after resizing.
+- Keeps Python bytecode outside the watched plugin tree and bounds browser-selector labels and row count.
+
+Compatibility checks cover older and newer desktop-handler/bar metadata, both low-memory modes, Firefox/Floorp/Chromium launch selection, and legacy shortcut migration. Live desktop verification was performed on Omarchy 4.5.0rc3 / Hyprland 0.57; older Omarchy releases were tested through recorded-contract fixtures, not a second installed desktop.
+
 ## Version 1.3.0
 
 - **Low-memory mode** (Alt+click the `𝕏` icon, which turns lime): hiding closes X instead of keeping it in memory, and the next show opens a fresh window. If a post is still being written, the page's own leave-site prompt keeps it open and a notification asks you to save a draft.
