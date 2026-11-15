@@ -60,6 +60,47 @@ ensure_client_fullscreen 0x123 force
 '''
         self.assertEqual(subprocess.check_output(['bash','-c',code],text=True), '')
 
+    def restore(self, state, locked=False):
+        with tempfile.TemporaryDirectory() as folder:
+            code = function('restore_chromeless') + r'''
+X_CLIENT_FULLSCREEN=true; LOCK="$TESTDIR/lock"; STATE=/unused
+read_file_safe() { echo '0x123|42'; }
+resolve() { echo "$1"; }
+state_of() { echo "$PANEL_STATE"; }
+ensure_client_fullscreen() { echo "restore $1"; }
+if [ "$LOCKED" = true ]; then exec 8>>"$LOCK"; flock -n 8; fi
+restore_chromeless
+'''
+            return subprocess.check_output(['bash', '-c', code], text=True,
+                env={**os.environ, 'TESTDIR': folder, 'PANEL_STATE': state,
+                     'LOCKED': str(locked).lower()}).strip()
+
+    def test_workspace_change_restores_chromeless_visible_panel(self):
+        self.assertEqual(self.restore('visible'), 'restore 0x123')
+
+    def test_restore_chromeless_leaves_hidden_or_busy_panel_alone(self):
+        self.assertEqual(self.restore('hidden'), '')
+        self.assertEqual(self.restore('visible', locked=True), '')
+
+    def nobar(self, address):
+        code = 'PANEL_TAG=x-panel\n' + function('panel_nobar') + r'''
+hyprctl() { echo "$2" >&3; }
+exec 3>&1
+panel_nobar "$ADDRESS"
+'''
+        return subprocess.check_output(['bash', '-c', code], text=True,
+            env={**os.environ, 'ADDRESS': address}).splitlines()
+
+    def test_floating_workspace_title_bar_is_dropped_by_tag(self):
+        lines = self.nobar('0xabc')
+        self.assertEqual(len(lines), 2)
+        self.assertIn('match = { tag = "x-panel" }', lines[0])
+        self.assertIn('["hyprbars:no_bar"] = true', lines[0])
+        self.assertIn('tag = "+x-panel", window = "address:0xabc"', lines[1])
+
+    def test_title_bar_rule_never_splices_an_invalid_address(self):
+        self.assertEqual(self.nobar('0xabc" }) os.execute("x'), [])
+
     def launch(self, succeeds=True):
         with tempfile.TemporaryDirectory() as folder:
             code = function('launch_or_reuse') + r'''

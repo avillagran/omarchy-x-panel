@@ -16,6 +16,7 @@ import Quickshell.Wayland
 import QtQuick.Controls
 import qs.Ui
 import qs.Commons
+import qs.Commons as Commons
 
 BarWidget {
   id: root
@@ -59,6 +60,11 @@ BarWidget {
       root.geom = g
       root.panelFocused = g.focused === true
       if (!gripLayer.dragging) gripLayer.syncFromGeom()
+      // Chromium got its toolbar back after a workspace change: hide it again.
+      if (g.visible === true && g.chromeless === false && root.ownsPanel && !gripLayer.dragging) {
+        Quickshell.execDetached([root.binPath, "chromeless"])
+        settleTimer.restart()
+      }
     } catch (e) {}
   }
   function refreshUnread() { unreadProc.running = true }
@@ -139,6 +145,7 @@ BarWidget {
         root.fullscreenActive = String(event.data || "") === "1"
       } else if (name === "movewindowv2" || name === "openwindow" || name === "closewindow"
                  || name === "changefloatingmode" || name === "pin"
+                 || name === "workspacev2" || name === "focusedmonv2"
                  || name === "monitoradded" || name === "monitorremoved") {
         pollTimer.restart()
       }
@@ -384,7 +391,7 @@ BarWidget {
           textFormat: Text.PlainText
           anchors.centerIn: parent
           text: root.unreadLabel
-          color: Color.popups.background
+          color: Commons.Color.popups.background
           font.pixelSize: Style.space(8)
           font.bold: true
         }
@@ -420,7 +427,7 @@ BarWidget {
       anchors.centerIn: parent
       text: "◢"
       rotation: grip.hdir < 0 ? (grip.vdir < 0 ? 180 : 90) : (grip.vdir < 0 ? 270 : 0)
-      color: Color.popups.text
+      color: Commons.Color.popups.text
       opacity: gripArea.containsMouse || gripArea.pressed ? 0.6 : 0.16
       font.pixelSize: Style.space(10)
     }
@@ -585,7 +592,7 @@ BarWidget {
             Text {
               textFormat: Text.PlainText
               text: "𝕏"
-              color: Color.accent
+              color: Commons.Color.accent
               font.family: popup.bar ? popup.bar.fontFamily : Style.font.family
               font.pixelSize: Style.font.title
               anchors.verticalCenter: parent.verticalCenter

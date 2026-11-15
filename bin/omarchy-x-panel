@@ -394,12 +394,26 @@ panel_box() {
   echo "$mx $my $mw $sy $sh $w $h"
 }
 
+# On Omarchy's floating workspaces hyprbars draws a title bar above floating
+# windows; the panel drops it, as omarchy-t3-widget does. The rule follows a
+# tag on the panel window only, and a config reload forgets the rule, so it
+# is registered again every time the panel is laid out.
+PANEL_TAG=x-panel
+panel_nobar() {
+  local a="$1"
+  [[ "$a" =~ ^0x[0-9a-fA-F]+$ ]] || return 0
+  hyprctl eval "hl.window_rule({ name = \"$PANEL_TAG\", match = { tag = \"$PANEL_TAG\" }, [\"hyprbars:no_bar\"] = true })" >/dev/null 2>&1
+  hyprctl eval "hl.dispatch(hl.dsp.window.tag({ tag = \"+$PANEL_TAG\", window = \"address:$a\" }))" >/dev/null 2>&1
+  return 0
+}
+
 # apply_layout <address|pid> [monitor-id]: default is the focused monitor.
 apply_layout() {
   local ap="$1" a="${1%%|*}" mx my mw sy sh w h xy x y
   read -r mx my mw sy sh w h <<< "$(panel_box "${2:-}")"
   [ -n "$h" ] || return 1
   ensure_float "$a"
+  panel_nobar "$a"
   # Position with the size the client accepted, which may exceed the request.
   read -r w h <<< "$(resize_and_measure "$a" "$w" "$h")"
   # Chromium may restore its controls on resize without changing Hyprland's
@@ -551,6 +565,7 @@ reveal_window() {
   hl_move "$a" "+0" true
   ensure_float "$a"
   ensure_pin "$a" true
+  panel_nobar "$a"
 }
 hide_window() {
   local ap="$1" a="${1%%|*}"
@@ -634,7 +649,7 @@ geom_json() {
   if [ -z "$a" ]; then echo '{"visible":false}'; return; fi
   clients=$(hypr_json hyprctl clients -j); mons=$(hypr_json hyprctl monitors -j)
   printf '%s\n' "${clients:-[]}" "${mons:-[]}" "$(read_prefs)" | jq -cs \
-    --arg a "$a" --arg sp "$SPECIAL" '
+    --arg a "$a" --arg sp "$SPECIAL" --argjson cf "$([ "$X_CLIENT_FULLSCREEN" = true ] && echo true || echo false)" '
     .[0] as $c | .[1] as $m | .[2] as $p | ($c | map(select(.address == $a)) | .[0]) as $w
     | if $w == null or $w.workspace.name == $sp or ($w.pinned | not) or ($w.floating | not)
       then {visible: false, address: $a}
@@ -642,8 +657,24 @@ geom_json() {
       | {visible: true, address: $a, monitor: $mo.name, mx: $mo.x, my: $mo.y,
          x: ($w.at[0] - $mo.x), y: ($w.at[1] - $mo.y), w: $w.size[0], h: $w.size[1],
          focused: ($w.focusHistoryID == 0),
+         chromeless: (($cf | not) or $w.fullscreenClient == 2),
          side: $p.side, valign: $p.valign}
       end' 2>/dev/null || echo '{"visible":false}'
+}
+
+# Hyprland drops the client fullscreen state whenever the pinned panel
+# changes workspace (switching workspaces or focusing another monitor), and
+# Chromium then shows its tabs and toolbar again. The widget calls this when
+# `geom` reports it; a running toggle re-applies it itself, so skip then.
+restore_chromeless() {
+  [ "$X_CLIENT_FULLSCREEN" = true ] || return 0
+  [ -L "$LOCK" ] && return 0
+  exec 9>>"$LOCK" || return 0
+  flock -n 9 || return 0
+  local saved ap
+  saved=$(read_file_safe "$STATE" | tr -d '[:space:]'); ap=$(resolve "$saved")
+  [ -n "$ap" ] && [ "$(state_of "$ap")" = visible ] || return 0
+  ensure_client_fullscreen "${ap%%|*}"
 }
 
 # set-size <w> <h>: persist a size dragged with the grips for the monitor the
@@ -774,6 +805,7 @@ case "${1:-toggle}" in
     read_prefs | jq -c --arg m "$mk" '. + (.monitors[$m] // {}) | del(.monitors) | .monitor = $m'
     ;;
   geom) geom_json ;;
+  chromeless) restore_chromeless ;;
   set-size) set_size "${2:-}" "${3:-}" ;;
   hide-if-blurred) hide_if_blurred "${2:-}" ;;
   watchdog) watchdog ;;
